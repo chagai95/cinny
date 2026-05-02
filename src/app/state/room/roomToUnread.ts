@@ -29,6 +29,12 @@ import { roomToParentsAtom } from './roomToParents';
 import { useStateEventCallback } from '../../hooks/useStateEventCallback';
 import { useSyncState } from '../../hooks/useSyncState';
 import { useRoomsNotificationPreferencesContext } from '../../hooks/useRoomsNotificationPreferences';
+import { useSetting } from '../hooks/settings';
+import { settingsAtom } from '../settings';
+
+const filterDotOnly = (infos: UnreadInfo[]): UnreadInfo[] =>
+  infos.filter((info) => info.total > 0 || info.highlight > 0);
+const isDotOnly = (info: UnreadInfo): boolean => info.total <= 0 && info.highlight <= 0;
 
 export type RoomToUnreadAction =
   | {
@@ -169,13 +175,15 @@ export const roomToUnreadAtom = atom<RoomToUnread, [RoomToUnreadAction], undefin
 export const useBindRoomToUnreadAtom = (mx: MatrixClient, unreadAtom: typeof roomToUnreadAtom) => {
   const setUnreadAtom = useSetAtom(unreadAtom);
   const roomsNotificationPreferences = useRoomsNotificationPreferencesContext();
+  const [hideUnreadActivityDots] = useSetting(settingsAtom, 'hideUnreadActivityDots');
 
   useEffect(() => {
+    const infos = getUnreadInfos(mx);
     setUnreadAtom({
       type: 'RESET',
-      unreadInfos: getUnreadInfos(mx),
+      unreadInfos: hideUnreadActivityDots ? filterDotOnly(infos) : infos,
     });
-  }, [mx, setUnreadAtom]);
+  }, [mx, setUnreadAtom, hideUnreadActivityDots]);
 
   useSyncState(
     mx,
@@ -185,13 +193,14 @@ export const useBindRoomToUnreadAtom = (mx: MatrixClient, unreadAtom: typeof roo
           (state === SyncState.Prepared && prevState === null) ||
           (state === SyncState.Syncing && prevState !== SyncState.Syncing)
         ) {
+          const infos = getUnreadInfos(mx);
           setUnreadAtom({
             type: 'RESET',
-            unreadInfos: getUnreadInfos(mx),
+            unreadInfos: hideUnreadActivityDots ? filterDotOnly(infos) : infos,
           });
         }
       },
-      [mx, setUnreadAtom]
+      [mx, setUnreadAtom, hideUnreadActivityDots]
     )
   );
 
@@ -213,13 +222,18 @@ export const useBindRoomToUnreadAtom = (mx: MatrixClient, unreadAtom: typeof roo
       }
 
       if (mEvent.getSender() === mx.getUserId()) return;
-      setUnreadAtom({ type: 'PUT', unreadInfo: getUnreadInfo(room) });
+      const info = getUnreadInfo(room);
+      if (hideUnreadActivityDots && isDotOnly(info)) {
+        setUnreadAtom({ type: 'DELETE', roomId: room.roomId });
+        return;
+      }
+      setUnreadAtom({ type: 'PUT', unreadInfo: info });
     };
     mx.on(RoomEvent.Timeline, handleTimelineEvent);
     return () => {
       mx.removeListener(RoomEvent.Timeline, handleTimelineEvent);
     };
-  }, [mx, setUnreadAtom]);
+  }, [mx, setUnreadAtom, hideUnreadActivityDots]);
 
   useEffect(() => {
     const handleReceipt = (mEvent: MatrixEvent, room: Room) => {
@@ -244,11 +258,12 @@ export const useBindRoomToUnreadAtom = (mx: MatrixClient, unreadAtom: typeof roo
   }, [mx, setUnreadAtom]);
 
   useEffect(() => {
+    const infos = getUnreadInfos(mx);
     setUnreadAtom({
       type: 'RESET',
-      unreadInfos: getUnreadInfos(mx),
+      unreadInfos: hideUnreadActivityDots ? filterDotOnly(infos) : infos,
     });
-  }, [mx, setUnreadAtom, roomsNotificationPreferences]);
+  }, [mx, setUnreadAtom, roomsNotificationPreferences, hideUnreadActivityDots]);
 
   useEffect(() => {
     const handleMembershipChange = (room: Room, membership: string) => {
@@ -270,13 +285,14 @@ export const useBindRoomToUnreadAtom = (mx: MatrixClient, unreadAtom: typeof roo
     useCallback(
       (mEvent) => {
         if (mEvent.getType() === StateEvent.SpaceChild) {
+          const infos = getUnreadInfos(mx);
           setUnreadAtom({
             type: 'RESET',
-            unreadInfos: getUnreadInfos(mx),
+            unreadInfos: hideUnreadActivityDots ? filterDotOnly(infos) : infos,
           });
         }
       },
-      [mx, setUnreadAtom]
+      [mx, setUnreadAtom, hideUnreadActivityDots]
     )
   );
 };
