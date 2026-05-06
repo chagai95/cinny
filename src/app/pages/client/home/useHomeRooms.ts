@@ -1,14 +1,20 @@
 import { useAtomValue } from 'jotai';
+import { useCallback } from 'react';
 import { useMatrixClient } from '../../../hooks/useMatrixClient';
 import { mDirectAtom } from '../../../state/mDirectList';
-import { roomToParentsAtom } from '../../../state/room/roomToParents';
 import { allRoomsAtom } from '../../../state/room-list/roomList';
-import { useOrphanRooms } from '../../../state/hooks/roomList';
+import { useSelectedRooms } from '../../../state/hooks/roomList';
+import { isRoom } from '../../../utils/room';
 
 export const useHomeRooms = () => {
   const mx = useMatrixClient();
   const mDirects = useAtomValue(mDirectAtom);
-  const roomToParents = useAtomValue(roomToParentsAtom);
-  const rooms = useOrphanRooms(mx, allRoomsAtom, mDirects, roomToParents);
+  const rooms = useSelectedRooms(
+    allRoomsAtom,
+    useCallback(
+      (roomId) => isRoom(mx.getRoom(roomId)) && !mDirects.has(roomId),
+      [mx, mDirects]
+    )
+  );
   return rooms;
 };

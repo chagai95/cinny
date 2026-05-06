@@ -186,7 +186,10 @@ export function Direct() {
   const sortedDirects = useMemo(() => {
     const items = Array.from(directs).sort(factoryRoomIdByActivity(mx));
     if (closedCategories.has(DEFAULT_CATEGORY_ID)) {
-      return items.filter((rId) => roomToUnread.has(rId) || rId === selectedRoomId);
+      return items.filter((rId) => {
+        const u = roomToUnread.get(rId);
+        return (u !== undefined && (u.total > 0 || u.highlight > 0)) || rId === selectedRoomId;
+      });
     }
     return items;
   }, [mx, directs, closedCategories, roomToUnread, selectedRoomId]);

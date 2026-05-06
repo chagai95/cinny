@@ -77,7 +77,7 @@ const defaultSettings: Settings = {
 
   showNotifications: true,
   isNotificationSounds: true,
-  hideUnreadActivityDots: false,
+  hideUnreadActivityDots: true,
 
   hour24Clock: false,
   dateFormatString: 'D MMM YYYY',

@@ -413,8 +413,11 @@ export function Space() {
         if (!closedCategories.has(makeNavCategoryId(space.roomId, parentId))) {
           return false;
         }
+        const u = roomToUnread.get(roomId);
         const showRoomAnyway =
-          roomToUnread.has(roomId) || roomId === selectedRoomId || callEmbed?.roomId === roomId;
+          (u !== undefined && (u.total > 0 || u.highlight > 0)) ||
+          roomId === selectedRoomId ||
+          callEmbed?.roomId === roomId;
         return !showRoomAnyway;
       },
       [space.roomId, closedCategories, roomToUnread, selectedRoomId, callEmbed]
