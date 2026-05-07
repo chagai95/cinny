@@ -1,12 +1,9 @@
-import React, { useRef, useState } from 'react';
-import { Box, Text, IconButton, Icon, Icons, Scroll, Chip } from 'folds';
-import { useAtom } from 'jotai';
+import React from 'react';
+import { Box, Text, IconButton, Icon, Icons, Scroll } from 'folds';
 import { Page, PageContent, PageHeader } from '../../../components/page';
 import { SequenceCard } from '../../../components/sequence-card';
 import { SequenceCardStyle } from '../styles.css';
 import { SettingTile } from '../../../components/setting-tile';
-import { signingNameAtom } from '../../../state/signingName';
-import { config } from 'folds';
 import { useDeviceIds, useDeviceList, useSplitCurrentDevice } from '../../../hooks/useDeviceList';
 import { useMatrixClient } from '../../../hooks/useMatrixClient';
 import { LocalBackup } from './LocalBackup';
@@ -29,69 +26,6 @@ import {
 } from '../../../hooks/useSecretStorage';
 import { useCrossSigningActive } from '../../../hooks/useCrossSigning';
 import { BackupRestoreTile } from '../../../components/BackupRestore';
-
-function SigningNameSetting() {
-  const [storedName, setStoredName] = useAtom(signingNameAtom);
-  const [editing, setEditing] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const handleSave = () => {
-    const val = inputRef.current?.value.trim() ?? '';
-    setStoredName(val);
-    setEditing(false);
-  };
-
-  return (
-    <SettingTile
-      title="Message Signing Name"
-      description={
-        <>
-          The name shown at the bottom of outgoing messages as a signature. Leave blank to use your
-          device name. Current:{' '}
-          <strong>{storedName || 'device name'}</strong>
-        </>
-      }
-      after={
-        !editing && (
-          <Chip variant="Secondary" radii="Pill" onClick={() => setEditing(true)}>
-            <Text size="B300">Edit</Text>
-          </Chip>
-        )
-      }
-    >
-      {editing && (
-        <Box gap="200" alignItems="Center" style={{ marginTop: config.space.S100 }}>
-          <input
-            ref={inputRef}
-            defaultValue={storedName}
-            placeholder="e.g. Joe from the Connect Bern Team"
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSave();
-              if (e.key === 'Escape') setEditing(false);
-            }}
-            style={{
-              flex: 1,
-              background: 'var(--mx-bg-surface)',
-              border: '1px solid var(--mx-bd-interactive)',
-              borderRadius: config.radii.R200,
-              padding: `${config.space.S100} ${config.space.S200}`,
-              color: 'inherit',
-              font: 'inherit',
-              outline: 'none',
-            }}
-          />
-          <Chip variant="Primary" radii="Pill" onClick={handleSave}>
-            <Text size="B300">Save</Text>
-          </Chip>
-          <Chip variant="Surface" radii="Pill" onClick={() => setEditing(false)}>
-            <Text size="B300">Cancel</Text>
-          </Chip>
-        </Box>
-      )}
-    </SettingTile>
-  );
-}
 
 function DevicesPlaceholder() {
   return (
@@ -176,17 +110,6 @@ export function Devices({ requestClose }: DevicesProps) {
                       </>
                     }
                   />
-                </SequenceCard>
-              </Box>
-              <Box direction="Column" gap="100">
-                <Text size="L400">Message Signing</Text>
-                <SequenceCard
-                  className={SequenceCardStyle}
-                  variant="SurfaceVariant"
-                  direction="Column"
-                  gap="400"
-                >
-                  <SigningNameSetting />
                 </SequenceCard>
               </Box>
               <Box direction="Column" gap="100">

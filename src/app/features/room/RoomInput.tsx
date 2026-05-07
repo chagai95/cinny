@@ -119,7 +119,6 @@ import { useTheme } from '../../hooks/useTheme';
 import { useRoomCreatorsTag } from '../../hooks/useRoomCreatorsTag';
 import { usePowerLevelTags } from '../../hooks/usePowerLevelTags';
 import { useComposingCheck } from '../../hooks/useComposingCheck';
-import { useDeviceList, useSplitCurrentDevice } from '../../hooks/useDeviceList';
 
 interface RoomInputProps {
   editor: Editor;
@@ -177,11 +176,7 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
     const [autocompleteQuery, setAutocompleteQuery] =
       useState<AutocompleteQuery<AutocompletePrefix>>();
 
-    const [deviceList] = useDeviceList();
-    const [currentDevice] = useSplitCurrentDevice(deviceList);
-    const storedSigningName = useAtomValue(signingNameAtom);
-    const resolvedName = storedSigningName || currentDevice?.display_name;
-    const signingName = resolvedName || mx.getDeviceId() || 'Unknown';
+    const signingName = useAtomValue(signingNameAtom);
     const signature = signingName;
 
     const [signatureEnabled, setSignatureEnabled] = useState(() => {

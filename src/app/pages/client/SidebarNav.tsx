@@ -11,6 +11,7 @@ import {
   HomeTab,
   InboxTab,
   SettingsTab,
+  SignatureTab,
   UnverifiedTab,
   SearchTab,
 } from './sidebar';
@@ -33,6 +34,7 @@ export function SidebarNav() {
               <SearchTab />
               <UnverifiedTab />
               <InboxTab />
+              <SignatureTab />
               <SettingsTab />
             </SidebarStack>
           </>
