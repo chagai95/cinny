@@ -117,6 +117,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useRoomCreatorsTag } from '../../hooks/useRoomCreatorsTag';
 import { usePowerLevelTags } from '../../hooks/usePowerLevelTags';
 import { useComposingCheck } from '../../hooks/useComposingCheck';
+import { useDeviceList, useSplitCurrentDevice } from '../../hooks/useDeviceList';
 
 interface RoomInputProps {
   editor: Editor;
@@ -173,6 +174,15 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
     const [toolbar, setToolbar] = useSetting(settingsAtom, 'editorToolbar');
     const [autocompleteQuery, setAutocompleteQuery] =
       useState<AutocompleteQuery<AutocompletePrefix>>();
+
+    const [deviceList] = useDeviceList();
+    const [currentDevice] = useSplitCurrentDevice(deviceList);
+    const deviceName = currentDevice?.display_name ?? mx.getDeviceId() ?? 'Unknown';
+    const [signatureEnabled, setSignatureEnabled] = useState(() => {
+      const stored = localStorage.getItem(`cbern_last_sent_${roomId}`);
+      if (!stored) return true;
+      return Date.now() - parseInt(stored, 10) > 86_400_000;
+    });
 
     const sendTypingStatus = useTypingStatusUpdater(mx, roomId);
 
@@ -340,8 +350,9 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
 
       if (plainText === '') return;
 
-      const body = plainText;
-      const formattedBody = customHtml;
+      const signature = `${deviceName} from the Connect Bern Team`;
+      const body = signatureEnabled ? `${plainText}\n${signature}` : plainText;
+      const formattedBody = signatureEnabled ? `${customHtml}<br>\n${signature}` : customHtml;
       const mentionData = getMentions(mx, roomId, editor);
 
       const content: IContent = {
@@ -373,11 +384,13 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
         }
       }
       mx.sendMessage(roomId, content as any);
+      localStorage.setItem(`cbern_last_sent_${roomId}`, String(Date.now()));
+      if (signatureEnabled) setSignatureEnabled(false);
       resetEditor(editor);
       resetEditorHistory(editor);
       setReplyDraft(undefined);
       sendTypingStatus(false);
-    }, [mx, roomId, editor, replyDraft, sendTypingStatus, setReplyDraft, isMarkdown, commands]);
+    }, [mx, roomId, editor, replyDraft, sendTypingStatus, setReplyDraft, isMarkdown, commands, deviceName, signatureEnabled]);
 
     const handleKeyDown: KeyboardEventHandler = useCallback(
       (evt) => {
@@ -675,12 +688,57 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
             </>
           }
           bottom={
-            toolbar && (
-              <div>
-                <Line variant="SurfaceVariant" size="300" />
-                <Toolbar />
-              </div>
-            )
+            <div>
+              {toolbar && (
+                <div>
+                  <Line variant="SurfaceVariant" size="300" />
+                  <Toolbar />
+                </div>
+              )}
+              <Box
+                alignItems="Center"
+                gap="200"
+                style={{
+                  padding: `${config.space.S100} ${config.space.S300}`,
+                  userSelect: 'none',
+                }}
+              >
+                <Box
+                  as="button"
+                  type="button"
+                  alignItems="Center"
+                  gap="100"
+                  onClick={() => setSignatureEnabled((v) => !v)}
+                  style={{
+                    all: 'unset',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: config.space.S100,
+                    padding: `${config.space.S100} ${config.space.S200}`,
+                    borderRadius: '9999px',
+                    cursor: 'pointer',
+                    border: '1px solid',
+                    borderColor: signatureEnabled
+                      ? 'var(--mx-tc-positive)'
+                      : 'var(--mx-tc-surface-variant)',
+                    background: signatureEnabled
+                      ? 'var(--mx-bg-positive)'
+                      : 'var(--mx-bg-surface-variant)',
+                    color: signatureEnabled
+                      ? 'var(--mx-tc-on-positive)'
+                      : 'var(--mx-tc-surface-variant)',
+                    opacity: signatureEnabled ? 1 : 0.6,
+                    transition: 'all 0.15s ease',
+                    fontSize: 'inherit',
+                  }}
+                >
+                  <Icon src={signatureEnabled ? Icons.Pencil : Icons.Cross} size="50" />
+                  <Text as="span" size="T200">
+                    {signatureEnabled ? `Signing as ${deviceName}` : 'No signature'}
+                  </Text>
+                </Box>
+              </Box>
+            </div>
           }
         />
       </div>
