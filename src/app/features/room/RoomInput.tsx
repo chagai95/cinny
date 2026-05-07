@@ -180,9 +180,9 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
     const [deviceList] = useDeviceList();
     const [currentDevice] = useSplitCurrentDevice(deviceList);
     const storedSigningName = useAtomValue(signingNameAtom);
-    const deviceDisplayName = currentDevice?.display_name ?? mx.getDeviceId() ?? 'Unknown';
-    const signingName = storedSigningName || deviceDisplayName;
-    const signature = `${signingName} from the Connect Bern Team`;
+    const resolvedName = storedSigningName || currentDevice?.display_name;
+    const signingName = resolvedName || mx.getDeviceId() || 'Unknown';
+    const signature = signingName;
 
     const [signatureEnabled, setSignatureEnabled] = useState(() => {
       const stored = localStorage.getItem(`cbern_last_sent_${roomId}`);
@@ -217,11 +217,11 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
     }, [editor, signature]);
 
     useEffect(() => {
-      if (signatureEnabled && signingName !== 'Unknown' && !didPreInsert.current) {
+      if (signatureEnabled && resolvedName && !didPreInsert.current) {
         didPreInsert.current = true;
         insertSignatureLine();
       }
-    }, [signatureEnabled, signingName, insertSignatureLine]);
+    }, [signatureEnabled, resolvedName, insertSignatureLine]);
 
     const sendTypingStatus = useTypingStatusUpdater(mx, roomId);
 

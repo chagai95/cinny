@@ -57,7 +57,7 @@ export function TokenLogin({ token }: TokenLoginProps) {
     startLogin(baseUrl, {
       type: 'm.login.token',
       token,
-      initial_device_display_name: 'Joe',
+      initial_device_display_name: 'Joe from the Connect Bern Team',
     });
   }, [baseUrl, token, startLogin]);
 

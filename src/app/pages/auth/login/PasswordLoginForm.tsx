@@ -133,7 +133,7 @@ export function PasswordLoginForm({ defaultUsername, defaultEmail }: PasswordLog
         user: username,
       },
       password,
-      initial_device_display_name: 'Joe',
+      initial_device_display_name: 'Joe from the Connect Bern Team',
     });
   };
 
@@ -151,7 +151,7 @@ export function PasswordLoginForm({ defaultUsername, defaultEmail }: PasswordLog
         user: mxIdUsername,
       },
       password,
-      initial_device_display_name: 'Joe',
+      initial_device_display_name: 'Joe from the Connect Bern Team',
     });
   };
   const handleEmailLogin = (email: string, password: string) => {
@@ -163,7 +163,7 @@ export function PasswordLoginForm({ defaultUsername, defaultEmail }: PasswordLog
         address: email,
       },
       password,
-      initial_device_display_name: 'Joe',
+      initial_device_display_name: 'Joe from the Connect Bern Team',
     });
   };
 
