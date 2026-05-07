@@ -65,7 +65,7 @@ export function Login() {
       {parsedFlows.password && (
         <>
           <PasswordLoginForm
-            defaultUsername={loginSearchParams.username}
+            defaultUsername={loginSearchParams.username ?? 'stayinginbern'}
             defaultEmail={loginSearchParams.email}
           />
           <span data-spacing-node />

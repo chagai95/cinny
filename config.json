@@ -1,6 +1,6 @@
 {
-  "defaultHomeserver": 1,
-  "homeserverList": ["converser.eu", "matrix.org", "mozilla.org", "unredacted.org", "xmr.se"],
+  "defaultHomeserver": 0,
+  "homeserverList": ["chagai.website", "converser.eu", "matrix.org", "mozilla.org", "unredacted.org", "xmr.se"],
   "allowCustomHomeservers": true,
 
   "featuredCommunities": {
