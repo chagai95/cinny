@@ -212,7 +212,7 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
     }, [editor, signature]);
 
     useEffect(() => {
-      if (!signatureEnabled || !resolvedName || didPreInsert.current) return;
+      if (!signatureEnabled || !signingName || didPreInsert.current) return;
       didPreInsert.current = true;
       // Use setTimeout so this runs after the draft-restore effect
       const timer = setTimeout(() => {
@@ -223,7 +223,7 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
         if (!alreadyHasSig) insertSignatureLine();
       }, 0);
       return () => clearTimeout(timer);
-    }, [signatureEnabled, resolvedName, signature, editor, insertSignatureLine]);
+    }, [signatureEnabled, signingName, signature, editor, insertSignatureLine]);
 
     const sendTypingStatus = useTypingStatusUpdater(mx, roomId);
 
