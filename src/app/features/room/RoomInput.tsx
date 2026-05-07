@@ -217,11 +217,18 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
     }, [editor, signature]);
 
     useEffect(() => {
-      if (signatureEnabled && resolvedName && !didPreInsert.current) {
-        didPreInsert.current = true;
-        insertSignatureLine();
-      }
-    }, [signatureEnabled, resolvedName, insertSignatureLine]);
+      if (!signatureEnabled || !resolvedName || didPreInsert.current) return;
+      didPreInsert.current = true;
+      // Use setTimeout so this runs after the draft-restore effect
+      const timer = setTimeout(() => {
+        const alreadyHasSig = (editor.children as any[]).some(
+          (node) =>
+            (node.children as any[])?.map((c: any) => c.text ?? '').join('') === signature
+        );
+        if (!alreadyHasSig) insertSignatureLine();
+      }, 0);
+      return () => clearTimeout(timer);
+    }, [signatureEnabled, resolvedName, signature, editor, insertSignatureLine]);
 
     const sendTypingStatus = useTypingStatusUpdater(mx, roomId);
 
@@ -278,11 +285,22 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
       Transforms.insertFragment(editor, msgDraft);
     }, [editor, msgDraft]);
 
+    const signatureRef = useRef(signature);
+    signatureRef.current = signature;
+
     useEffect(
       () => () => {
-        if (!isEmptyEditor(editor)) {
-          const parsedDraft = JSON.parse(JSON.stringify(editor.children));
-          setMsgDraft(parsedDraft);
+        const children = (editor.children as any[]).filter(
+          (node) =>
+            (node.children as any[])?.map((c: any) => c.text ?? '').join('') !==
+            signatureRef.current
+        );
+        const hasContent = children.some(
+          (node) =>
+            (node.children as any[])?.map((c: any) => c.text ?? '').join('').trim() !== ''
+        );
+        if (hasContent) {
+          setMsgDraft(JSON.parse(JSON.stringify(children)));
         } else {
           setMsgDraft([]);
         }
