@@ -27,6 +27,7 @@ import { UserAvatar } from '../../components/user-avatar';
 import { nameInitials } from '../../utils/common';
 import { Notifications } from './notifications';
 import { Devices } from './devices';
+import { Signature } from './signature/Signature';
 import { EmojisStickers } from './emojis-stickers';
 import { DeveloperTools } from './developer-tools';
 import { About } from './about';
@@ -39,6 +40,7 @@ export enum SettingsPages {
   AccountPage,
   NotificationPage,
   DevicesPage,
+  SignaturePage,
   EmojisStickersPage,
   DeveloperToolsPage,
   AboutPage,
@@ -72,6 +74,11 @@ const useSettingsMenuItems = (): SettingsMenuItem[] =>
         page: SettingsPages.DevicesPage,
         name: 'Devices',
         icon: Icons.Monitor,
+      },
+      {
+        page: SettingsPages.SignaturePage,
+        name: 'Signature',
+        icon: Icons.Pencil,
       },
       {
         page: SettingsPages.EmojisStickersPage,
@@ -221,6 +228,9 @@ export function Settings({ initialPage, requestClose }: SettingsProps) {
       )}
       {activePage === SettingsPages.DevicesPage && (
         <Devices requestClose={handlePageRequestClose} />
+      )}
+      {activePage === SettingsPages.SignaturePage && (
+        <Signature requestClose={handlePageRequestClose} />
       )}
       {activePage === SettingsPages.EmojisStickersPage && (
         <EmojisStickers requestClose={handlePageRequestClose} />

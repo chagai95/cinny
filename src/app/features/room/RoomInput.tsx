@@ -174,6 +174,56 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
     const [autocompleteQuery, setAutocompleteQuery] =
       useState<AutocompleteQuery<AutocompletePrefix>>();
 
+
+    const signingName = useAtomValue(signingNameAtom);
+    const signature = signingName;
+
+    const [signatureEnabled, setSignatureEnabled] = useState(() => {
+      const stored = localStorage.getItem(`cbern_last_sent_${roomId}`);
+      if (!stored) return true;
+      return Date.now() - parseInt(stored, 10) > 86_400_000;
+    });
+
+    const didPreInsert = useRef(false);
+
+    const insertSignatureLine = useCallback(() => {
+      const node = { type: BlockType.Paragraph, children: [{ text: signature }] };
+      Transforms.insertNodes(editor, node as any, { at: [editor.children.length] });
+      Transforms.select(editor, Editor.start(editor, []));
+      ReactEditor.focus(editor);
+    }, [editor, signature]);
+
+    const removeSignatureLine = useCallback(() => {
+      for (let i = editor.children.length - 1; i >= 0; i--) {
+        const nodeText = Array.from(Node.texts(editor.children[i] as any))
+          .map(([n]) => n.text)
+          .join('');
+        if (nodeText === signature) {
+          if (editor.children.length === 1) {
+            Transforms.select(editor, { anchor: { path: [0, 0], offset: 0 }, focus: { path: [0, 0], offset: nodeText.length } });
+            Transforms.delete(editor);
+          } else {
+            Transforms.removeNodes(editor, { at: [i] });
+          }
+          break;
+        }
+      }
+    }, [editor, signature]);
+
+    useEffect(() => {
+      if (!signatureEnabled || !signingName || didPreInsert.current) return;
+      didPreInsert.current = true;
+      const timer = setTimeout(() => {
+        const alreadyHasSig = (editor.children as any[]).some(
+          (node) =>
+            (node.children as any[])?.map((c: any) => c.text ?? '').join('') === signature
+        );
+        if (!alreadyHasSig) insertSignatureLine();
+      }, 0);
+      return () => clearTimeout(timer);
+    }, [signatureEnabled, signingName, signature, editor, insertSignatureLine]);
+
+
     const sendTypingStatus = useTypingStatusUpdater(mx, roomId);
 
     const handleFiles = useCallback(
@@ -675,12 +725,67 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
             </>
           }
           bottom={
-            toolbar && (
-              <div>
-                <Line variant="SurfaceVariant" size="300" />
-                <Toolbar />
-              </div>
-            )
+            <div>
+              {toolbar && (
+                <div>
+                  <Line variant="SurfaceVariant" size="300" />
+                  <Toolbar />
+                </div>
+              )}
+              {signingName && (
+              <Box
+                alignItems="Center"
+                gap="200"
+                style={{
+                  padding: `${config.space.S100} ${config.space.S300}`,
+                  userSelect: 'none',
+                }}
+              >
+                <Box
+                  as="button"
+                  type="button"
+                  alignItems="Center"
+                  gap="100"
+                  onClick={() => {
+                    if (signatureEnabled) {
+                      removeSignatureLine();
+                      setSignatureEnabled(false);
+                    } else {
+                      insertSignatureLine();
+                      setSignatureEnabled(true);
+                    }
+                  }}
+                  style={{
+                    all: 'unset',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: config.space.S100,
+                    padding: `${config.space.S100} ${config.space.S200}`,
+                    borderRadius: '9999px',
+                    cursor: 'pointer',
+                    border: '1px solid',
+                    borderColor: signatureEnabled
+                      ? 'var(--mx-tc-positive)'
+                      : 'var(--mx-tc-surface-variant)',
+                    background: signatureEnabled
+                      ? 'var(--mx-bg-positive)'
+                      : 'var(--mx-bg-surface-variant)',
+                    color: signatureEnabled
+                      ? 'var(--mx-tc-on-positive)'
+                      : 'var(--mx-tc-surface-variant)',
+                    opacity: signatureEnabled ? 1 : 0.6,
+                    transition: 'all 0.15s ease',
+                    fontSize: 'inherit',
+                  }}
+                >
+                  <Icon src={signatureEnabled ? Icons.Pencil : Icons.Cross} size="50" />
+                  <Text as="span" size="T200">
+                    {signatureEnabled ? `Signing as ${signingName}` : 'No signature'}
+                  </Text>
+                </Box>
+              </Box>
+              )}
+            </div>
           }
         />
       </div>
