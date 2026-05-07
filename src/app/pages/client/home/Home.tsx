@@ -1,4 +1,4 @@
-import React, { MouseEventHandler, forwardRef, useMemo, useRef, useState } from 'react';
+import React, { MouseEventHandler, forwardRef, useCallback, useMemo, useRef, useState } from 'react';
 import {
   Avatar,
   Box,
@@ -55,6 +55,9 @@ import {
   RoomNotificationMode,
   useRoomsNotificationPreferencesContext,
 } from '../../../hooks/useRoomsNotificationPreferences';
+import { allInvitesAtom } from '../../../state/room-list/inviteList';
+import { guessDmRoomUserId, addRoomIdToMDirect } from '../../../utils/matrix';
+import { isDirectInvite } from '../../../utils/room';
 
 type HomeMenuProps = {
   requestClose: () => void;
@@ -172,6 +175,30 @@ export function Home() {
   const mDirects = useAtomValue(mDirectAtom);
   const notificationPreferences = useRoomsNotificationPreferencesContext();
   const roomToUnread = useAtomValue(roomToUnreadAtom);
+  const allInvites = useAtomValue(allInvitesAtom);
+  const [joiningRooms, setJoiningRooms] = useState<Set<string>>(new Set());
+
+  const handleAcceptInvite = useCallback(
+    async (roomId: string) => {
+      setJoiningRooms((s) => new Set(s).add(roomId));
+      try {
+        const room = mx.getRoom(roomId);
+        const userId = mx.getSafeUserId();
+        const dmUserId =
+          room && isDirectInvite(room, userId) ? guessDmRoomUserId(room, userId) : undefined;
+        await mx.joinRoom(roomId);
+        if (dmUserId) await addRoomIdToMDirect(mx, roomId, dmUserId);
+      } catch {
+        setJoiningRooms((s) => { const n = new Set(s); n.delete(roomId); return n; });
+      }
+    },
+    [mx]
+  );
+
+  const handleDeclineInvite = useCallback(
+    (roomId: string) => mx.leave(roomId).catch(() => undefined),
+    [mx]
+  );
 
   const selectedRoomId = useSelectedRoom();
   const searchSelected = useHomeSearchSelected();
@@ -245,6 +272,70 @@ export function Home() {
                 </NavLink>
               </NavItem>
             </NavCategory>
+            {allInvites.length > 0 && (
+              <NavCategory>
+                <NavCategoryHeader>
+                  <Text size="L400" style={{ padding: `0 ${config.space.S200}`, opacity: 0.7, fontWeight: 600 }}>
+                    Invites ({allInvites.length})
+                  </Text>
+                </NavCategoryHeader>
+                {allInvites.map((roomId) => {
+                  const room = mx.getRoom(roomId);
+                  if (!room) return null;
+                  const joining = joiningRooms.has(roomId);
+                  return (
+                    <NavItem key={roomId} variant="Background" radii="400">
+                      <NavItemContent>
+                        <Box as="span" grow="Yes" alignItems="Center" gap="200">
+                          <Box as="span" grow="Yes">
+                            <Text as="span" size="T300" truncate>
+                              {room.name}
+                            </Text>
+                          </Box>
+                          <Box shrink="No" gap="100">
+                            <button
+                              type="button"
+                              disabled={joining}
+                              onClick={() => handleAcceptInvite(roomId)}
+                              style={{
+                                all: 'unset',
+                                cursor: joining ? 'default' : 'pointer',
+                                padding: `${config.space.S100} ${config.space.S200}`,
+                                borderRadius: config.radii.R200,
+                                background: 'var(--mx-bg-positive)',
+                                color: 'var(--mx-tc-on-positive)',
+                                fontSize: '0.75em',
+                                fontWeight: 600,
+                                opacity: joining ? 0.5 : 1,
+                              }}
+                            >
+                              {joining ? '…' : 'Accept'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={joining}
+                              onClick={() => handleDeclineInvite(roomId)}
+                              style={{
+                                all: 'unset',
+                                cursor: 'pointer',
+                                padding: `${config.space.S100} ${config.space.S200}`,
+                                borderRadius: config.radii.R200,
+                                background: 'var(--mx-bg-critical)',
+                                color: 'var(--mx-tc-on-critical)',
+                                fontSize: '0.75em',
+                                fontWeight: 600,
+                              }}
+                            >
+                              Decline
+                            </button>
+                          </Box>
+                        </Box>
+                      </NavItemContent>
+                    </NavItem>
+                  );
+                })}
+              </NavCategory>
+            )}
             <NavCategory>
               <NavCategoryHeader>
                 <RoomNavCategoryButton

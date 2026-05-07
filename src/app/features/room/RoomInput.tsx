@@ -11,7 +11,7 @@ import { useAtom, useAtomValue } from 'jotai';
 import { isKeyHotkey } from 'is-hotkey';
 import { EventType, IContent, MsgType, RelationType, Room } from 'matrix-js-sdk';
 import { ReactEditor } from 'slate-react';
-import { Transforms, Editor } from 'slate';
+import { Transforms, Editor, Node } from 'slate';
 import {
   Box,
   Dialog,
@@ -31,6 +31,7 @@ import {
 
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import {
+  BlockType,
   CustomEditor,
   Toolbar,
   toMatrixCustomHTML,
@@ -54,6 +55,7 @@ import {
   trimCommand,
   getMentions,
 } from '../../components/editor';
+import { signingNameAtom } from '../../state/signingName';
 import { EmojiBoard, EmojiBoardTab } from '../../components/emoji-board';
 import { UseStateProvider } from '../../components/UseStateProvider';
 import {
@@ -177,12 +179,49 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
 
     const [deviceList] = useDeviceList();
     const [currentDevice] = useSplitCurrentDevice(deviceList);
-    const deviceName = currentDevice?.display_name ?? mx.getDeviceId() ?? 'Unknown';
+    const storedSigningName = useAtomValue(signingNameAtom);
+    const deviceDisplayName = currentDevice?.display_name ?? mx.getDeviceId() ?? 'Unknown';
+    const signingName = storedSigningName || deviceDisplayName;
+    const signature = `${signingName} from the Connect Bern Team`;
+
     const [signatureEnabled, setSignatureEnabled] = useState(() => {
       const stored = localStorage.getItem(`cbern_last_sent_${roomId}`);
       if (!stored) return true;
       return Date.now() - parseInt(stored, 10) > 86_400_000;
     });
+
+    const didPreInsert = useRef(false);
+
+    const insertSignatureLine = useCallback(() => {
+      const node = { type: BlockType.Paragraph, children: [{ text: signature }] };
+      Transforms.insertNodes(editor, node as any, { at: [editor.children.length] });
+      Transforms.select(editor, Editor.start(editor, []));
+      ReactEditor.focus(editor);
+    }, [editor, signature]);
+
+    const removeSignatureLine = useCallback(() => {
+      for (let i = editor.children.length - 1; i >= 0; i--) {
+        const nodeText = Array.from(Node.texts(editor.children[i] as any))
+          .map(([n]) => n.text)
+          .join('');
+        if (nodeText === signature) {
+          if (editor.children.length === 1) {
+            Transforms.select(editor, { anchor: { path: [0, 0], offset: 0 }, focus: { path: [0, 0], offset: nodeText.length } });
+            Transforms.delete(editor);
+          } else {
+            Transforms.removeNodes(editor, { at: [i] });
+          }
+          break;
+        }
+      }
+    }, [editor, signature]);
+
+    useEffect(() => {
+      if (signatureEnabled && signingName !== 'Unknown' && !didPreInsert.current) {
+        didPreInsert.current = true;
+        insertSignatureLine();
+      }
+    }, [signatureEnabled, signingName, insertSignatureLine]);
 
     const sendTypingStatus = useTypingStatusUpdater(mx, roomId);
 
@@ -350,9 +389,8 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
 
       if (plainText === '') return;
 
-      const signature = `${deviceName} from the Connect Bern Team`;
-      const body = signatureEnabled ? `${plainText}\n${signature}` : plainText;
-      const formattedBody = signatureEnabled ? `${customHtml}<br>\n${signature}` : customHtml;
+      const body = plainText;
+      const formattedBody = customHtml;
       const mentionData = getMentions(mx, roomId, editor);
 
       const content: IContent = {
@@ -390,7 +428,7 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
       resetEditorHistory(editor);
       setReplyDraft(undefined);
       sendTypingStatus(false);
-    }, [mx, roomId, editor, replyDraft, sendTypingStatus, setReplyDraft, isMarkdown, commands, deviceName, signatureEnabled]);
+    }, [mx, roomId, editor, replyDraft, sendTypingStatus, setReplyDraft, isMarkdown, commands]);
 
     const handleKeyDown: KeyboardEventHandler = useCallback(
       (evt) => {
@@ -708,7 +746,15 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
                   type="button"
                   alignItems="Center"
                   gap="100"
-                  onClick={() => setSignatureEnabled((v) => !v)}
+                  onClick={() => {
+                    if (signatureEnabled) {
+                      removeSignatureLine();
+                      setSignatureEnabled(false);
+                    } else {
+                      insertSignatureLine();
+                      setSignatureEnabled(true);
+                    }
+                  }}
                   style={{
                     all: 'unset',
                     display: 'inline-flex',
@@ -734,7 +780,7 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
                 >
                   <Icon src={signatureEnabled ? Icons.Pencil : Icons.Cross} size="50" />
                   <Text as="span" size="T200">
-                    {signatureEnabled ? `Signing as ${deviceName}` : 'No signature'}
+                    {signatureEnabled ? `Signing as ${signingName}` : 'No signature'}
                   </Text>
                 </Box>
               </Box>

@@ -22,7 +22,8 @@ import {
   isNotificationEvent,
 } from '../../utils/room';
 import { NotificationType, UnreadInfo } from '../../../types/matrix/room';
-import { getMxIdLocalPart, mxcUrlToHttp } from '../../utils/matrix';
+import { getMxIdLocalPart, mxcUrlToHttp, guessDmRoomUserId, addRoomIdToMDirect } from '../../utils/matrix';
+import { isDirectInvite } from '../../utils/room';
 import { useSelectedRoom } from '../../hooks/router/useSelectedRoom';
 import { useInboxNotificationsSelected } from '../../hooks/router/useInbox';
 import { useMediaAuthentication } from '../../hooks/useMediaAuthentication';
@@ -257,6 +258,35 @@ type ClientNonUIFeaturesProps = {
   children: ReactNode;
 };
 
+function AutoAcceptInvites() {
+  const mx = useMatrixClient();
+  const invites = useAtomValue(allInvitesAtom);
+  const attemptedRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    invites.forEach(async (roomId) => {
+      if (attemptedRef.current.has(roomId)) return;
+      attemptedRef.current.add(roomId);
+      try {
+        const room = mx.getRoom(roomId);
+        const userId = mx.getSafeUserId();
+        const dmUserId =
+          room && isDirectInvite(room, userId) ? guessDmRoomUserId(room, userId) : undefined;
+        await mx.joinRoom(roomId);
+        if (dmUserId) await addRoomIdToMDirect(mx, roomId, dmUserId);
+      } catch {
+        attemptedRef.current.delete(roomId);
+      }
+    });
+  }, [mx, invites]);
+
+  return null;
+}
+
+type ClientNonUIFeaturesProps = {
+  children: ReactNode;
+};
+
 export function ClientNonUIFeatures({ children }: ClientNonUIFeaturesProps) {
   return (
     <>
@@ -265,6 +295,7 @@ export function ClientNonUIFeatures({ children }: ClientNonUIFeaturesProps) {
       <FaviconUpdater />
       <InviteNotifications />
       <MessageNotifications />
+      <AutoAcceptInvites />
       {children}
     </>
   );
