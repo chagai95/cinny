@@ -18,6 +18,7 @@ import {
   SearchTab,
 } from './sidebar';
 import { CreateTab } from './sidebar/CreateTab';
+import { WhatsAppStartTab } from '../../features/wa-start-chat';
 
 export function SidebarNav() {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -30,6 +31,7 @@ export function SidebarNav() {
             <SidebarStack>
               <HomeTab />
               <DirectTab />
+              <WhatsAppStartTab />
             </SidebarStack>
             <SpaceTabs scrollRef={scrollRef} />
             <SidebarStackSeparator />
