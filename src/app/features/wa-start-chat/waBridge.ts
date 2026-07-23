@@ -1,33 +1,39 @@
-import { ClientEvent, IContent, MatrixClient, Room, RoomEvent } from 'matrix-js-sdk';
+import { ClientEvent, IContent, MatrixClient, MatrixEvent, Room, RoomEvent } from 'matrix-js-sdk';
 import { Membership } from '../../../types/matrix/room';
 import { getMxIdServer } from '../../utils/matrix';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- * WhatsApp bridge configuration — VERIFY-THEN-FILL section.
+ * WhatsApp bridge configuration.
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * These constants control how we talk to the mautrix-whatsapp bridge bot. The
- * DEFAULTS below are the standard mautrix-whatsapp conventions, but the EXACT
- * values for Chagai's bridge (the `stayinginbern` login) must be confirmed live
- * and slotted in here. Everything the feature needs to be re-pointed is isolated
- * to this object so no other file has to change.
+ * These constants control how we talk to the mautrix-whatsapp bridge bot.
  *
- * WHAT TO VERIFY / FILL IN (main session confirms via Claude Chrome):
- *  - BRIDGE_BOT_LOCALPART  : the bot user's localpart. mautrix-whatsapp default
- *                            is `whatsappbot` → `@whatsappbot:<server>`. Some
- *                            deployments use `@bridgebot:` or a custom name.
- *  - BRIDGE_BOT_USER_ID    : if the bot lives on a DIFFERENT homeserver than the
- *                            logged-in user, set the FULL user id here and it
- *                            overrides the localpart+server derivation.
- *  - PM_COMMAND            : the exact command template. Chagai's instruction is
- *                            `!wa pm <number>`. `{number}` is replaced with the
- *                            E.164 string (WITH leading +).
- *  - NEW_ROOM_TIMEOUT_MS   : how long to wait for the bridge to create/invite the
- *                            resulting DM room before giving up.
+ * Verified against Chagai's server (2026-07-23, read-only DB check):
+ *  - The bridge bot is `@whatsappbot:chagai.website` (joined to each user's
+ *    management room).
+ *  - `!wa pm <e164>` is the correct command (confirmed from real management-room
+ *    history — `!wa pn` returns "Unknown command"; `!wa pm +<number>` works).
+ *  - The command is issued **as whoever is logged in** to this Cinny instance,
+ *    into that account's WhatsApp bridge **management room**. For the
+ *    connect-bern-chat deployment (always logged in as `@stayinginbern`) that
+ *    room is `!DXORRePztlYSpKZzwZ:chagai.website` (members: @stayinginbern +
+ *    @whatsappbot). So we DEFAULT the management room to that id, but keep it
+ *    configurable and fall back to auto-discovery if the fixed room isn't
+ *    joined (e.g. when a different account is logged in).
+ *
+ * Everything the feature needs to be re-pointed is isolated to this object so no
+ * other file has to change.
  */
 export type WaBridgeConfig = {
-  /** Localpart of the bridge bot (no @, no :server). */
+  /**
+   * Fixed room id of the bridge-bot **management room** to send `!wa pm` into.
+   * This is the primary target. If the logged-in user is NOT joined to it, we
+   * fall back to discovering the management room by the bot's presence (see
+   * `findBridgeBotRoom`).
+   */
+  managementRoomId?: string;
+  /** Localpart of the bridge bot (no @, no :server). Used for discovery + reply matching. */
   bridgeBotLocalpart: string;
   /**
    * Full bot user id override. Leave undefined to derive it as
@@ -36,18 +42,21 @@ export type WaBridgeConfig = {
   bridgeBotUserIdOverride?: string;
   /** Command template; `{number}` → E.164 with leading +. */
   pmCommandTemplate: string;
-  /** Max wait for the resulting DM room to appear (ms). */
+  /** Max wait for a result (new DM, or the bot's reply) before giving up (ms). */
   newRoomTimeoutMs: number;
 };
 
 export const WA_BRIDGE_CONFIG: WaBridgeConfig = {
-  // DEFAULT — mautrix-whatsapp standard. VERIFY for the stayinginbern bridge.
+  // Verified: @stayinginbern's WhatsApp bridge management room on chagai.website.
+  // The connect-bern-chat Cinny instance is always logged in as @stayinginbern,
+  // so `!wa pm` goes here. Falls back to discovery for any other account.
+  managementRoomId: '!DXORRePztlYSpKZzwZ:chagai.website',
   bridgeBotLocalpart: 'whatsappbot',
-  // Leave undefined unless the bot is on another server (then put the full id).
   bridgeBotUserIdOverride: undefined,
-  // Chagai's exact instruction. Do not change without his say-so.
   pmCommandTemplate: '!wa pm {number}',
-  newRoomTimeoutMs: 30_000,
+  // 45s: give the bridge time to resolve the number + create/invite the portal,
+  // OR to reply "already have a chat" / "not on WhatsApp".
+  newRoomTimeoutMs: 45_000,
 };
 
 /** Resolve the bridge-bot user id for the current client/session. */
@@ -65,11 +74,11 @@ export function buildPmCommand(e164: string, cfg = WA_BRIDGE_CONFIG): string {
 
 /**
  * Find the management/DM room with the WhatsApp bridge bot. This is the room
- * where `!wa` commands are issued (the one pinned when logged in). We look for a
- * JOINED room that contains the bot as a member and is small (a DM/management
- * room, not a big portal). We deliberately do NOT require encryption here (the
- * bridge management room is typically unencrypted), which is why we can't reuse
- * `getDMRoomFor` (that helper requires an encryption state event).
+ * where `!wa` commands are issued. We PREFER the configured fixed room id (if we
+ * are joined to it); otherwise we discover it: a JOINED room that contains the
+ * bot as a member and is small (a DM/management room, not a big portal). We
+ * deliberately do NOT require encryption here (the bridge management room is
+ * typically unencrypted), which is why we can't reuse `getDMRoomFor`.
  *
  * If several candidates exist we prefer:
  *   1) a 2-member room (just me + bot),
@@ -77,6 +86,13 @@ export function buildPmCommand(e164: string, cfg = WA_BRIDGE_CONFIG): string {
  *   3) then the most recently active.
  */
 export function findBridgeBotRoom(mx: MatrixClient, cfg = WA_BRIDGE_CONFIG): Room | undefined {
+  // 1) Fixed, verified management room — use it if we're actually joined.
+  if (cfg.managementRoomId) {
+    const fixed = mx.getRoom(cfg.managementRoomId);
+    if (fixed && fixed.getMyMembership() === Membership.Join) return fixed;
+  }
+
+  // 2) Fall back to discovery (different logged-in account, or room not synced).
   const botUserId = resolveBridgeBotUserId(mx, cfg);
   const myUserId = mx.getUserId() ?? '';
 
@@ -84,8 +100,8 @@ export function findBridgeBotRoom(mx: MatrixClient, cfg = WA_BRIDGE_CONFIG): Roo
     if (room.getMyMembership() !== Membership.Join) return false;
     const botMember = room.getMember(botUserId);
     if (!botMember) return false;
-    // Bot must actually be in the room (joined/invited), and it must be a small
-    // room (management/DM), not a group portal.
+    // Bot must actually be in the room, and it must be a small room
+    // (management/DM), not a group portal.
     const joined = room.getJoinedMembers().length;
     return joined <= 3 && room.getMember(myUserId) !== null;
   });
@@ -145,80 +161,176 @@ export function looksLikeNewWaDm(
   return otherMembers.length <= 1;
 }
 
+/**
+ * Parse a matrix.to room link out of the bridge bot's reply. mautrix formats the
+ * "you already have a direct chat" reply with a link like
+ *   https://matrix.to/#/!roomid:server   (plain body) OR
+ *   https://matrix.to/#/%21roomid%3Aserver   (url-encoded, in formatted_body)
+ * Returns the `!roomid:server` or `!roomid` string, or undefined.
+ */
+export function parseRoomIdFromMatrixTo(text: string): string | undefined {
+  if (!text) return undefined;
+  // Match both encoded (%21 / %3A) and plain (! / :) forms.
+  const m = text.match(/matrix\.to\/#\/(%21|!)([^/\s"<]+)/i);
+  if (!m) return undefined;
+  let rest = decodeURIComponent(m[2]);
+  // rest is the localpart(+:server) after the '!'. Strip any trailing junk.
+  rest = rest.replace(/[)>"'].*$/, '');
+  return `!${rest}`;
+}
+
+/** What the bridge bot's reply to `!wa pm` told us. */
+export type BotReply =
+  | { kind: 'existing'; roomId: string } // "you already have a direct chat …"
+  | { kind: 'notOnWhatsApp'; body: string } // "… is not on WhatsApp"
+  | { kind: 'error'; body: string } // any other bot error/notice
+  | { kind: 'other'; body: string }; // unrecognized (ignored)
+
+/**
+ * Classify a bridge-bot message body/formatted_body posted in the management room
+ * in response to our command.
+ */
+export function classifyBotReply(body: string, formattedBody?: string): BotReply {
+  const text = `${body ?? ''}\n${formattedBody ?? ''}`;
+  const lower = text.toLowerCase();
+
+  if (lower.includes('already have a direct chat') || lower.includes('already have a chat')) {
+    const roomId = parseRoomIdFromMatrixTo(text);
+    if (roomId) return { kind: 'existing', roomId };
+    // We know a chat exists but couldn't parse the link — treat as a soft error.
+    return { kind: 'error', body: body || 'You already have a chat with this number.' };
+  }
+  if (
+    lower.includes('is not on whatsapp') ||
+    lower.includes('not on whatsapp') ||
+    lower.includes('failed to resolve identifier')
+  ) {
+    return { kind: 'notOnWhatsApp', body };
+  }
+  if (
+    lower.includes('unknown command') ||
+    lower.includes('usage:') ||
+    lower.includes('error') ||
+    lower.includes('failed')
+  ) {
+    return { kind: 'error', body };
+  }
+  return { kind: 'other', body };
+}
+
+export type WaitOutcome =
+  | { kind: 'room'; roomId: string } // a WhatsApp DM to open (new OR existing)
+  | { kind: 'notOnWhatsApp'; message: string }
+  | { kind: 'error'; message: string }
+  | { kind: 'timeout' };
+
 export type WaitForRoomOptions = {
   timeoutMs?: number;
   botRoomId?: string;
   /** room ids that existed BEFORE the command was sent (to ignore). */
   preexisting: Set<string>;
+  /** timestamp (ms) the command was sent; only newer bot replies count. */
+  sinceTs: number;
+  cfg?: WaBridgeConfig;
 };
 
 /**
- * Wait for the bridge to surface the resulting WhatsApp DM room after the
- * `!wa pm` command, then resolve with its room id.
+ * Wait for the bridge to respond to our `!wa pm` command. Resolves as soon as ANY
+ * of these happens:
+ *   - a NEW WhatsApp DM room appears (→ open it),
+ *   - the bot replies "you already have a direct chat …" (→ open that room),
+ *   - the bot replies "… is not on WhatsApp" (→ friendly message),
+ *   - any other bot error notice (→ surface it),
+ *   - or the timeout elapses (→ timeout).
  *
- * Strategy: subscribe to new-room + membership-change events on the client and
- * resolve as soon as a room appears that (a) wasn't known before and (b) looks
- * like a fresh WhatsApp DM (see `looksLikeNewWaDm`). We also do an immediate
- * sweep in case the room already arrived between sending and subscribing.
- *
- * Resolves `undefined` on timeout (caller can then fall back to opening the bot
- * room / showing guidance).
+ * This is the fix for the old bug where the flow only handled "new room created"
+ * and otherwise hung for the full timeout and threw a scary error even though the
+ * bot had already answered (the very common "already have a chat" case).
  */
-export function waitForNewWaDm(
-  mx: MatrixClient,
-  opts: WaitForRoomOptions
-): Promise<string | undefined> {
-  const timeoutMs = opts.timeoutMs ?? WA_BRIDGE_CONFIG.newRoomTimeoutMs;
+export function waitForWaResult(mx: MatrixClient, opts: WaitForRoomOptions): Promise<WaitOutcome> {
+  const cfg = opts.cfg ?? WA_BRIDGE_CONFIG;
+  const timeoutMs = opts.timeoutMs ?? cfg.newRoomTimeoutMs;
+  const botUserId = resolveBridgeBotUserId(mx, cfg);
 
   return new Promise((resolve) => {
     let settled = false;
-    // Teardown steps registered after we wire everything up; `finish` runs them
-    // all. Using a list avoids referencing the timer/handlers before they exist.
     const cleanups: Array<() => void> = [];
 
-    const finish = (roomId: string | undefined) => {
+    const finish = (outcome: WaitOutcome) => {
       if (settled) return;
       settled = true;
       cleanups.forEach((fn) => fn());
-      resolve(roomId);
+      resolve(outcome);
     };
 
-    const consider = (room: Room) => {
+    // (a) A brand-new WhatsApp DM room shows up.
+    const considerRoom = (room: Room) => {
       if (opts.preexisting.has(room.roomId)) return;
-      if (looksLikeNewWaDm(mx, room, opts.botRoomId)) {
-        finish(room.roomId);
+      if (looksLikeNewWaDm(mx, room, opts.botRoomId, cfg)) {
+        finish({ kind: 'room', roomId: room.roomId });
       }
     };
 
-    const onRoom = (room: Room) => consider(room);
-    const onMembership = (room: Room) => consider(room);
-    const timer = setTimeout(() => finish(undefined), timeoutMs);
+    // (b) The bot posts a reply in the management room.
+    const considerTimeline = (event: MatrixEvent, room?: Room) => {
+      if (settled) return;
+      if (opts.botRoomId && room && room.roomId !== opts.botRoomId) return;
+      if (event.getType() !== 'm.room.message') return;
+      if (event.getSender() !== botUserId) return;
+      // Ignore replies from before we issued the command.
+      if ((event.getTs() ?? 0) < opts.sinceTs - 1000) return;
+
+      const content = event.getContent();
+      const reply = classifyBotReply(content.body ?? '', content.formatted_body);
+      if (reply.kind === 'existing') {
+        finish({ kind: 'room', roomId: reply.roomId });
+      } else if (reply.kind === 'notOnWhatsApp') {
+        finish({
+          kind: 'notOnWhatsApp',
+          message: "That number isn't on WhatsApp, so no chat could be started.",
+        });
+      } else if (reply.kind === 'error') {
+        finish({ kind: 'error', message: reply.body });
+      }
+      // 'other' → ignore (e.g. state/keepalive notices); keep waiting.
+    };
+
+    const onRoom = (room: Room) => considerRoom(room);
+    const onMembership = (room: Room) => considerRoom(room);
+    const onTimeline = (event: MatrixEvent, room?: Room) => considerTimeline(event, room);
+    const timer = setTimeout(() => finish({ kind: 'timeout' }), timeoutMs);
 
     mx.on(ClientEvent.Room, onRoom);
     mx.on(RoomEvent.MyMembership, onMembership);
+    mx.on(RoomEvent.Timeline, onTimeline);
 
     cleanups.push(
       () => clearTimeout(timer),
       () => mx.removeListener(ClientEvent.Room, onRoom),
-      () => mx.removeListener(RoomEvent.MyMembership, onMembership)
+      () => mx.removeListener(RoomEvent.MyMembership, onMembership),
+      () => mx.removeListener(RoomEvent.Timeline, onTimeline)
     );
 
     // Immediate sweep — the room may already be present.
-    mx.getRooms().forEach(consider);
+    mx.getRooms().forEach(considerRoom);
   });
 }
 
+/** Error carrying a user-friendly message (dialog shows `.message` verbatim). */
+export class StartWhatsAppChatError extends Error {}
+
 /**
  * Full client-side flow:
- *   1. find the bridge-bot management room,
+ *   1. find the bridge-bot management room (fixed id, else discovery),
  *   2. send `!wa pm <e164>` into it,
- *   3. wait for the resulting WhatsApp DM room,
- *   4. auto-join it if we were only invited,
- *   5. return its room id (or throw a descriptive error).
+ *   3. wait for the outcome: a new DM room, an existing DM room, "not on
+ *      WhatsApp", another error, or a timeout,
+ *   4. auto-join the room if we were only invited,
+ *   5. return its room id — or throw a `StartWhatsAppChatError` with a friendly,
+ *      user-readable message (never an unhandled crash).
  *
  * This performs NO navigation — the caller (a hook/component) does that so it can
- * use the app's router. Kept as a plain async function so it stays easy to test /
- * reason about.
+ * use the app's router.
  */
 export async function startWhatsAppChat(
   mx: MatrixClient,
@@ -227,32 +339,45 @@ export async function startWhatsAppChat(
 ): Promise<string> {
   const botRoom = findBridgeBotRoom(mx, cfg);
   if (!botRoom) {
-    const botId = resolveBridgeBotUserId(mx, cfg);
-    throw new Error(
-      `Could not find the WhatsApp bridge bot room (${botId}). Make sure you are logged in to WhatsApp and the bot chat exists.`
+    throw new StartWhatsAppChatError(
+      'Could not find the WhatsApp bridge chat. Make sure you are logged in and the WhatsApp bridge is connected, then try again.'
     );
   }
 
   const preexisting = knownRoomIds(mx);
   const command = buildPmCommand(e164, cfg);
+  const sinceTs = Date.now();
 
-  const content: IContent = {
-    msgtype: 'm.text',
-    body: command,
-  };
-  await mx.sendMessage(botRoom.roomId, content);
+  const content: IContent = { msgtype: 'm.text', body: command };
+  try {
+    await mx.sendMessage(botRoom.roomId, content);
+  } catch (e) {
+    throw new StartWhatsAppChatError(
+      'Could not send the WhatsApp chat request to the bridge. Please try again in a moment.'
+    );
+  }
 
-  const newRoomId = await waitForNewWaDm(mx, {
+  const outcome = await waitForWaResult(mx, {
     preexisting,
     botRoomId: botRoom.roomId,
     timeoutMs: cfg.newRoomTimeoutMs,
+    sinceTs,
+    cfg,
   });
 
-  if (!newRoomId) {
-    throw new Error(
-      'Sent the WhatsApp chat request, but the new chat did not appear in time. It may still show up in your chat list shortly.'
+  if (outcome.kind === 'notOnWhatsApp') {
+    throw new StartWhatsAppChatError(outcome.message);
+  }
+  if (outcome.kind === 'error') {
+    throw new StartWhatsAppChatError(outcome.message);
+  }
+  if (outcome.kind === 'timeout') {
+    throw new StartWhatsAppChatError(
+      'The WhatsApp bridge did not respond in time. The chat may still appear in your list shortly — please check in a moment.'
     );
   }
+
+  const newRoomId = outcome.roomId;
 
   // If the bridge invited us rather than auto-joining, join now so we can open it.
   const newRoom = mx.getRoom(newRoomId);

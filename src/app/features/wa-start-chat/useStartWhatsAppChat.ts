@@ -23,11 +23,16 @@ export function useStartWhatsAppChat() {
 
   const start = useCallback(
     (e164: string) => {
-      startCb(e164).then((roomId) => {
-        if (alive() && roomId) {
-          navigateRoom(roomId);
-        }
-      });
+      startCb(e164)
+        .then((roomId) => {
+          if (alive() && roomId) {
+            navigateRoom(roomId);
+          }
+        })
+        // The error is already captured into `state.error` by useAsyncCallback and
+        // shown in the dialog; swallow the rejection here so it doesn't surface as
+        // an unhandled promise rejection in the console / dev error overlay.
+        .catch(() => undefined);
     },
     [startCb, alive, navigateRoom]
   );
