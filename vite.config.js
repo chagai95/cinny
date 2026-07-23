@@ -27,6 +27,10 @@ const copyFiles = {
       dest: '',
     },
     {
+      src: 'public/_redirects',
+      dest: '',
+    },
+    {
       src: 'config.json',
       dest: '',
     },
