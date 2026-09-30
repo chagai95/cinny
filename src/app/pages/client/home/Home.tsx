@@ -210,23 +210,26 @@ export function Home() {
   const [closedCategories, setClosedCategories] = useAtom(useClosedNavCategoriesAtom());
   const [hideActivityDots] = useSetting(settingsAtom, 'hideUnreadActivityDots');
 
+  const categoryClosed = closedCategories.has(DEFAULT_CATEGORY_ID);
+
+  // Sorting every room in Home is the expensive part, and A-Z order does not change
+  // as messages arrive. Keeping it in its own memo takes the full sort out of the
+  // path that runs on every sync response and every time another room is opened.
+  const orderedRooms = useMemo(() => Array.from(rooms).sort(factoryRoomIdByAtoZ(mx)), [mx, rooms]);
+
   const sortedRooms = useMemo(() => {
-    const items = Array.from(rooms).sort(
-      closedCategories.has(DEFAULT_CATEGORY_ID)
-        ? factoryRoomIdByActivity(mx)
-        : factoryRoomIdByAtoZ(mx)
-    );
-    if (closedCategories.has(DEFAULT_CATEGORY_ID)) {
-      return items.filter((rId) => {
-        const u = roomToUnread.get(rId);
-        const isUnread = hideActivityDots
-          ? u !== undefined && (u.total > 0 || u.highlight > 0)
-          : roomToUnread.has(rId);
-        return isUnread || rId === selectedRoomId;
-      });
-    }
+    if (!categoryClosed) return orderedRooms;
+    // Collapsed category: show only unread rooms (plus the open one), newest first.
+    const items = orderedRooms.filter((rId) => {
+      const u = roomToUnread.get(rId);
+      const isUnread = hideActivityDots
+        ? u !== undefined && (u.total > 0 || u.highlight > 0)
+        : roomToUnread.has(rId);
+      return isUnread || rId === selectedRoomId;
+    });
+    items.sort(factoryRoomIdByActivity(mx));
     return items;
-  }, [mx, rooms, closedCategories, roomToUnread, selectedRoomId, hideActivityDots]);
+  }, [mx, orderedRooms, categoryClosed, roomToUnread, selectedRoomId, hideActivityDots]);
 
   const virtualizer = useVirtualizer({
     count: sortedRooms.length,
@@ -322,7 +325,7 @@ export function Home() {
             <NavCategory>
               <NavCategoryHeader>
                 <RoomNavCategoryButton
-                  closed={closedCategories.has(DEFAULT_CATEGORY_ID)}
+                  closed={categoryClosed}
                   data-category-id={DEFAULT_CATEGORY_ID}
                   onClick={handleCategoryClick}
                 >

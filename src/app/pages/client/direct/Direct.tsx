@@ -184,19 +184,26 @@ export function Direct() {
   const [closedCategories, setClosedCategories] = useAtom(useClosedNavCategoriesAtom());
   const [hideActivityDots] = useSetting(settingsAtom, 'hideUnreadActivityDots');
 
-  const sortedDirects = useMemo(() => {
+  // Recency order and the unread set are computed together, so opening another chat
+  // (which only changes `selectedRoomId`) no longer re-sorts the whole list.
+  const orderedDirects = useMemo(() => {
     const items = Array.from(directs).sort(factoryRoomIdByActivity(mx));
-    if (closedCategories.has(DEFAULT_CATEGORY_ID)) {
-      return items.filter((rId) => {
+    const unread = new Set(
+      items.filter((rId) => {
         const u = roomToUnread.get(rId);
-        const isUnread = hideActivityDots
+        return hideActivityDots
           ? u !== undefined && (u.total > 0 || u.highlight > 0)
           : roomToUnread.has(rId);
-        return isUnread || rId === selectedRoomId;
-      });
-    }
-    return items;
-  }, [mx, directs, closedCategories, roomToUnread, selectedRoomId, hideActivityDots]);
+      })
+    );
+    return { items, unread };
+  }, [mx, directs, roomToUnread, hideActivityDots]);
+
+  const sortedDirects = useMemo(() => {
+    if (!closedCategories.has(DEFAULT_CATEGORY_ID)) return orderedDirects.items;
+    const { items, unread } = orderedDirects;
+    return items.filter((rId) => unread.has(rId) || rId === selectedRoomId);
+  }, [orderedDirects, closedCategories, selectedRoomId]);
 
   const virtualizer = useVirtualizer({
     count: sortedDirects.length,
