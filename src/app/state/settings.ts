@@ -44,6 +44,12 @@ export interface Settings {
   isNotificationSounds: boolean;
   hideUnreadActivityDots: boolean;
 
+  // Home lists every joined chat (rooms *and* direct chats), including the ones
+  // that are a child of a space — e.g. the bridge "WhatsApp"/"Telegram" spaces.
+  // When false, Home keeps upstream Cinny's behaviour and only lists rooms that
+  // do not belong to any space.
+  homeShowsAllRooms: boolean;
+
   hour24Clock: boolean;
   dateFormatString: string;
 
@@ -86,6 +92,8 @@ const defaultSettings: Settings = {
   showNotifications: true,
   isNotificationSounds: true,
   hideUnreadActivityDots: false,
+
+  homeShowsAllRooms: true,
 
   hour24Clock: false,
   dateFormatString: 'D MMM YYYY',

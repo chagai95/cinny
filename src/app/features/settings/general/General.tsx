@@ -355,6 +355,25 @@ function Appearance() {
   );
 }
 
+function Navigation() {
+  const [homeShowsAllRooms, setHomeShowsAllRooms] = useSetting(settingsAtom, 'homeShowsAllRooms');
+
+  return (
+    <Box direction="Column" gap="100">
+      <Text size="L400">Navigation</Text>
+      <SequenceCard className={SequenceCardStyle} variant="SurfaceVariant" direction="Column">
+        <SettingTile
+          title="Show All Chats in Home"
+          description="List every chat under Home, including the ones that live inside a space (such as the WhatsApp and Telegram bridge spaces) and your direct chats. Turn off to keep only rooms that do not belong to any space. Spaces themselves are unaffected."
+          after={
+            <Switch variant="Primary" value={homeShowsAllRooms} onChange={setHomeShowsAllRooms} />
+          }
+        />
+      </SequenceCard>
+    </Box>
+  );
+}
+
 type DateHintProps = {
   hasChanges: boolean;
   handleReset: () => void;
@@ -1004,6 +1023,7 @@ export function General({ requestClose }: GeneralProps) {
           <PageContent>
             <Box direction="Column" gap="700">
               <Appearance />
+              <Navigation />
               <DateAndTime />
               <Editor />
               <Messages />

@@ -49,6 +49,7 @@ import { VirtualTile } from '../../../components/virtualizer';
 import { RoomNavCategoryButton, RoomNavItem } from '../../../features/room-nav';
 import { makeNavCategoryId } from '../../../state/closedNavCategories';
 import { roomToUnreadAtom } from '../../../state/room/roomToUnread';
+import { mDirectAtom } from '../../../state/mDirectList';
 import { useCategoryHandler } from '../../../hooks/useCategoryHandler';
 import { useNavToActivePathMapper } from '../../../hooks/useNavToActivePathMapper';
 import { PageNav, PageNavHeader, PageNavContent } from '../../../components/page';
@@ -203,12 +204,15 @@ export function Home() {
   const roomToUnread = useAtomValue(roomToUnreadAtom);
   const navigate = useNavigate();
 
+  const mDirects = useAtomValue(mDirectAtom);
+
   const selectedRoomId = useSelectedRoom();
   const createRoomSelected = useHomeCreateSelected();
   const searchSelected = useHomeSearchSelected();
   const noRoomToDisplay = rooms.length === 0;
   const [closedCategories, setClosedCategories] = useAtom(useClosedNavCategoriesAtom());
   const [hideActivityDots] = useSetting(settingsAtom, 'hideUnreadActivityDots');
+  const [showAllRooms] = useSetting(settingsAtom, 'homeShowsAllRooms');
 
   const categoryClosed = closedCategories.has(DEFAULT_CATEGORY_ID);
 
@@ -329,7 +333,7 @@ export function Home() {
                   data-category-id={DEFAULT_CATEGORY_ID}
                   onClick={handleCategoryClick}
                 >
-                  Rooms
+                  {showAllRooms ? 'Chats' : 'Rooms'}
                 </RoomNavCategoryButton>
               </NavCategoryHeader>
               <div
@@ -343,6 +347,10 @@ export function Home() {
                   const room = mx.getRoom(roomId);
                   if (!room) return null;
                   const selected = selectedRoomId === roomId;
+                  // Direct chats are part of Home when "Show All Chats in Home" is on.
+                  // They keep their Direct look (avatar + call button) but stay on the
+                  // Home route, so opening one does not jump the sidebar to another tab.
+                  const direct = mDirects.has(roomId);
 
                   return (
                     <VirtualTile
@@ -353,6 +361,8 @@ export function Home() {
                       <RoomNavItem
                         room={room}
                         selected={selected}
+                        showAvatar={direct}
+                        direct={direct}
                         linkPath={getHomeRoomPath(getCanonicalAliasOrRoomId(mx, roomId))}
                         notificationMode={getRoomNotificationMode(
                           notificationPreferences,

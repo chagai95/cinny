@@ -153,15 +153,33 @@ export const useAllJoinedRooms = (mx: MatrixClient, roomsAtom: RoomsAtom) => {
   return useSelectedRooms(roomsAtom, selector);
 };
 
+/**
+ * Rooms shown in Home.
+ *
+ * Default (upstream Cinny) behaviour lists only "orphan" rooms: joined rooms that
+ * are not a direct chat and are not a child of any joined space. On a bridged
+ * account that hides almost everything, because the mautrix bridges add every
+ * portal as an `m.space.child` of their own filtering space.
+ *
+ * With `showAllRooms` the selector keeps every joined non-space room instead —
+ * direct chats included — regardless of which spaces list it. In that mode the
+ * direct list and the space-parent map cannot exclude anything, so they are
+ * deliberately left out of the selector's dependencies: keeping them would
+ * rebuild the filtered list on every `m.direct` / `m.space.child` change without
+ * ever changing its content.
+ */
 export const useOrphanRooms = (
   mx: MatrixClient,
   roomsAtom: RoomsAtom,
   mDirects: Set<string>,
-  roomToParents: RoomToParents
+  roomToParents: RoomToParents,
+  showAllRooms = false
 ) => {
+  const directs = showAllRooms ? undefined : mDirects;
+  const parents = showAllRooms ? undefined : roomToParents;
   const selector: RoomSelector = useCallback(
-    (roomId) => isRoom(mx.getRoom(roomId)) && !mDirects.has(roomId) && !roomToParents.has(roomId),
-    [mx, mDirects, roomToParents]
+    (roomId) => isRoom(mx.getRoom(roomId)) && !directs?.has(roomId) && !parents?.has(roomId),
+    [mx, directs, parents]
   );
   return useSelectedRooms(roomsAtom, selector);
 };
