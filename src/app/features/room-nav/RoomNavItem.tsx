@@ -63,6 +63,7 @@ import { useAutoDiscoveryInfo } from '../../hooks/useAutoDiscoveryInfo';
 import { livekitSupport } from '../../hooks/useLivekitSupport';
 import { StateEvent } from '../../../types/matrix/room';
 import { getDmColorKey } from '../../utils/dmAvatar';
+import { openDmPictureHistory, useOpenMediaViewer } from '../media-viewer/state';
 import { webRTCSupported } from '../../utils/rtc';
 
 type RoomNavItemMenuProps = {
@@ -348,6 +349,16 @@ export function RoomNavItem({
     }
   };
 
+  // Tapping a 1:1 chat's picture opens the contact's picture history (same
+  // viewer as the chat header) instead of the chat; the rest of the row is
+  // unchanged.
+  const openMediaViewer = useOpenMediaViewer();
+  const handleAvatarClick: MouseEventHandler<HTMLElement> = (evt) => {
+    evt.preventDefault();
+    evt.stopPropagation();
+    openDmPictureHistory(mx, room, openMediaViewer);
+  };
+
   return (
     <NavItem
       variant="Background"
@@ -362,7 +373,18 @@ export function RoomNavItem({
       <NavLink to={linkPath} onClick={room.isCallRoom() ? handleStartCall : undefined}>
         <NavItemContent>
           <Box as="span" grow="Yes" alignItems="Center" gap="200">
-            <Avatar size="200" radii="400">
+            <Avatar
+              size="200"
+              radii="400"
+              {...(direct && showAvatar
+                ? {
+                    role: 'button',
+                    'aria-label': 'Profile pictures',
+                    'data-chat-list-avatar': true,
+                    onClick: handleAvatarClick,
+                  }
+                : {})}
+            >
               {showAvatar ? (
                 <RoomAvatar
                   roomId={direct ? getDmColorKey(room) : room.roomId}

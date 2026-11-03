@@ -104,11 +104,15 @@ const buildHistory = (
  */
 export const extractMemberAvatarHistory = (
   events: StateLikeEvent[],
-  userId: string,
+  userId: string | string[],
   currentMxc?: string
 ): AvatarHistoryEntry[] => {
+  // Several ids = the same person under several bridge ghosts (WhatsApp moved
+  // contacts from "@whatsapp_<phone>" to "@whatsapp_lid-<id>" on 2026-10-31:
+  // the old pictures sit on the old ghost, the new ghost has only the latest).
+  const ids = new Set(Array.isArray(userId) ? userId : [userId]);
   const picked: Picked[] = events
-    .filter((e) => e && e.type === 'm.room.member' && e.state_key === userId)
+    .filter((e) => e && e.type === 'm.room.member' && !!e.state_key && ids.has(e.state_key))
     .filter((e) => {
       const m = e.content?.membership;
       // leave / ban events carry no profile; they say nothing about the picture
@@ -143,12 +147,50 @@ export const extractRoomAvatarHistory = (
   return buildHistory(picked, 'room', currentMxc);
 };
 
-/** Filter for `/rooms/{id}/messages` that returns only `userId`'s own member events. */
-export const memberHistoryFilter = (userId: string) => ({
+/** Filter for `/rooms/{id}/messages` that returns only these users' own member events. */
+export const memberHistoryFilter = (userId: string | string[]) => ({
   types: ['m.room.member'],
-  senders: [userId],
+  senders: Array.isArray(userId) ? userId : [userId],
   lazy_load_members: false,
 });
+
+/**
+ * Each picture once, newest first.
+ *
+ * Bridges re-upload the SAME picture under a new mxc:// again and again (Bea's
+ * old WhatsApp ghost: 895 different mxc URLs for 144 different files), and a
+ * picture can come back later (A → B → A). `keyOf(mxc)` gives a content key
+ * (hash of the server thumbnail) when known; unknown ones are keyed by mxc.
+ * A repeat directly after its twin extends that entry's "set" date; a later
+ * repeat is dropped. `alias` maps every dropped mxc to the entry kept for it.
+ */
+export const collapseHistory = (
+  entries: AvatarHistoryEntry[],
+  keyOf: (mxc: string) => string | undefined = () => undefined
+): { entries: AvatarHistoryEntry[]; alias: Map<string, string> } => {
+  const out: AvatarHistoryEntry[] = [];
+  const alias = new Map<string, string>();
+  const keptByKey = new Map<string, AvatarHistoryEntry>();
+  entries.forEach((entry) => {
+    const key = keyOf(entry.mxc) ?? `mxc:${entry.mxc}`;
+    const kept = keptByKey.get(key) ?? keptByKey.get(`mxc:${entry.mxc}`);
+    if (!kept) {
+      const copy = { ...entry };
+      out.push(copy);
+      keptByKey.set(key, copy);
+      keptByKey.set(`mxc:${entry.mxc}`, copy);
+      return;
+    }
+    if (kept.mxc !== entry.mxc) alias.set(entry.mxc, kept.mxc);
+    if (out[out.length - 1] === kept && kept.source === entry.source) {
+      // the same picture again right before: it was in use since the older one
+      if (entry.since !== undefined) kept.since = entry.since;
+      else if (entry.before !== undefined && kept.since === undefined) kept.before = entry.before;
+      kept.eventId = entry.eventId ?? kept.eventId;
+    }
+  });
+  return { entries: out, alias };
+};
 
 export const roomAvatarHistoryFilter = () => ({ types: ['m.room.avatar'] });
 

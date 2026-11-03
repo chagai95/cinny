@@ -37,12 +37,7 @@ import { useSetting } from '../../state/hooks/settings';
 import { settingsAtom } from '../../state/settings';
 import { useSpaceOptionally } from '../../hooks/useSpace';
 import { getHomeSearchPath, getSpaceSearchPath, withSearchParam } from '../../pages/pathUtils';
-import {
-  getCanonicalAliasOrRoomId,
-  guessDmRoomUserId,
-  isRoomAlias,
-  mxcUrlToHttp,
-} from '../../utils/matrix';
+import { getCanonicalAliasOrRoomId, isRoomAlias, mxcUrlToHttp } from '../../utils/matrix';
 import { _SearchPathSearchParams } from '../../pages/paths';
 import * as css from './RoomViewHeader.css';
 import { useRoomUnread } from '../../state/hooks/unread';
@@ -76,9 +71,9 @@ import { useRoomPermissions } from '../../hooks/useRoomPermissions';
 import { InviteUserPrompt } from '../../components/invite-user-prompt';
 import { ContainerColor } from '../../styles/ContainerColor.css';
 import { RoomSettingsPage } from '../../state/roomSettings';
-import { getDmColorKey, getDmPartnerUserId } from '../../utils/dmAvatar';
+import { getDmColorKey } from '../../utils/dmAvatar';
 import { nameInitials } from '../../utils/common';
-import { useOpenMediaViewer } from '../media-viewer/state';
+import { openDmPictureHistory, useOpenMediaViewer } from '../media-viewer/state';
 import { useCallEmbed, useCallStart } from '../../hooks/useCallEmbed';
 import { useLivekitSupport } from '../../hooks/useLivekitSupport';
 import { webRTCSupported } from '../../utils/rtc';
@@ -470,13 +465,8 @@ export function RoomViewHeader({ callView }: { callView?: boolean }) {
   // picture; in a group the group picture's history.
   const openMediaViewer = useOpenMediaViewer();
   const handleAvatarClick = () => {
-    // The other person — never me, the bridge bot or my own puppet (bridged DMs
-    // have 3+ members, so the SDK's fallback member is empty there and the
-    // "oldest member" guess was the bot).
-    const dmUserId = direct
-      ? getDmPartnerUserId(room, guessDmRoomUserId(room, mx.getSafeUserId()))
-      : undefined;
-    openMediaViewer({ mode: 'avatars', roomId: room.roomId, userId: dmUserId, includeRoom: true });
+    if (direct) openDmPictureHistory(mx, room, openMediaViewer);
+    else openMediaViewer({ mode: 'avatars', roomId: room.roomId, includeRoom: true });
   };
 
   const handleSearchClick = () => {

@@ -18,6 +18,7 @@ const {
   collectHistoryEvents,
   describeHistoryEntry,
   memberHistoryFilter,
+  collapseHistory,
 } = await import('../src/app/features/profile-avatar-history/avatarHistory.ts');
 
 const T0 = Date.UTC(2026, 0, 1);
@@ -517,4 +518,77 @@ test('history pagination stops at the start and is bounded', async () => {
   assert.equal(bounded.complete, false);
   assert.equal(bounded.requests, 5);
   assert.deepEqual(memberHistoryFilter(WA).senders, [WA]);
+});
+
+// ---- 2026-11-03: Bea (WA) — history split over the old phone ghost and the new LID ghost,
+// and the bridge re-uploading the same picture under new mxc URLs.
+const OLD = '@whatsapp_41772831017:chagai.website';
+const LID = '@whatsapp_lid-75677927739393:chagai.website';
+const mem = (id, sk, avatar, ts, membership = 'join', extra = {}) => ({
+  event_id: id,
+  type: 'm.room.member',
+  sender: sk,
+  state_key: sk,
+  origin_server_ts: ts,
+  content: {
+    membership,
+    displayname: 'Bea (WA)',
+    ...(avatar ? { avatar_url: avatar } : {}),
+    ...extra,
+  },
+});
+
+test('LID switch: old phone ghost + new LID ghost together give the whole history', () => {
+  const evs = [
+    mem('$o1', OLD, 'mxc://s/a1', 100),
+    mem('$o2', OLD, undefined, 110), // picture briefly removed (bridge flapping)
+    mem('$o3', OLD, 'mxc://s/b1', 200),
+    mem('$o4', OLD, 'mxc://s/c1', 300),
+    mem('$o5', OLD, 'mxc://s/c1', 400, 'leave', { reason: 'Migrating to LIDs' }),
+    mem('$l1', LID, 'mxc://s/c2', 401), // same file as c1, new upload
+  ];
+  const onlyLid = extractMemberAvatarHistory(evs, LID, 'mxc://s/c2');
+  assert.equal(onlyLid.length, 1, 'the new ghost alone knows one picture (the bug)');
+  const both = extractMemberAvatarHistory(evs, [LID, OLD], 'mxc://s/c2');
+  assert.deepEqual(
+    both.map((e) => e.mxc),
+    ['mxc://s/c2', 'mxc://s/c1', 'mxc://s/b1', 'mxc://s/a1']
+  );
+  // c1 and c2 are the same file → shown once, "set" when c1 was first set
+  const key = (m) => ({ 'mxc://s/c1': 'C', 'mxc://s/c2': 'C' }[m]);
+  const { entries, alias } = collapseHistory(both, key);
+  assert.deepEqual(
+    entries.map((e) => e.mxc),
+    ['mxc://s/c2', 'mxc://s/b1', 'mxc://s/a1']
+  );
+  assert.equal(entries[0].since, 300);
+  assert.equal(entries[0].current, true);
+  assert.equal(alias.get('mxc://s/c1'), 'mxc://s/c2');
+});
+
+test('each picture once: re-uploads in a row fold into one, a picture that comes back later is not repeated', () => {
+  const E = (mxc, since, source = 'member') => ({ mxc, since, source });
+  const list = [
+    E('m:x3', 90),
+    E('m:x2', 80),
+    E('m:y', 70),
+    E('m:x1', 60),
+    E('m:z', 50),
+    E('m:z', 40),
+  ];
+  const key = (m) => (m.startsWith('m:x') ? 'X' : undefined);
+  const { entries } = collapseHistory(list, key);
+  assert.deepEqual(
+    entries.map((e) => [e.mxc, e.since]),
+    [
+      ['m:x3', 80],
+      ['m:y', 70],
+      ['m:z', 40],
+    ]
+  );
+  // the chat's own picture that is just a copy of a profile picture is not shown twice
+  const mixed = collapseHistory([E('m:p', 10), E('m:r', 5, 'room')], () => 'same');
+  assert.equal(mixed.entries.length, 1);
+  // unknown content keys: only identical mxc URLs are merged
+  assert.equal(collapseHistory([E('a', 2), E('b', 1)]).entries.length, 2);
 });

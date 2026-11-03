@@ -14,6 +14,7 @@ import {
   getDmPartnerMember,
   getDmPartnerUserId,
   getBridgedDmRoomIds,
+  getSamePersonGhostIds,
   getDmAvatarMxc,
   getDmColorKey,
   isBridgedDm,
@@ -297,4 +298,30 @@ test('scanning 9,000 chats for bridge 1:1 chats is cheap', () => {
   assert.equal(ids.size, 6000);
   assert.ok(ms < 200, `${ms.toFixed(1)} ms`);
   console.log(`# scan 9000 rooms: ${ms.toFixed(1)} ms`);
+});
+
+test('same person under two WhatsApp ghosts (LID move): both ids, from either ghost; never for groups/me/bot', () => {
+  const OLD = '@whatsapp_41772831017:chagai.website';
+  const LID = '@whatsapp_lid-75677927739393:chagai.website';
+  const left = [
+    {
+      state_key: OLD,
+      content: { membership: 'leave', reason: 'Migrating to LIDs', displayname: 'Bea (WA)' },
+    },
+    { state_key: OWN_PUPPET, content: { membership: 'leave', reason: 'Migrating to LIDs' } },
+    {
+      state_key: '@whatsapp_999:chagai.website',
+      content: { membership: 'leave', displayname: 'Someone else' },
+    },
+  ];
+  const room = fakeRoom({ members: [member(ME), member(BOT), member(LID, 'mxc://l', 'Bea (WA)')] });
+  assert.deepEqual(getSamePersonGhostIds(room, LID, left).sort(), [LID, OLD].sort());
+  assert.deepEqual(getSamePersonGhostIds(room, OLD, left).sort(), [LID, OLD].sort());
+  assert.deepEqual(getSamePersonGhostIds(room, ME, left), [ME]);
+  assert.deepEqual(getSamePersonGhostIds(room, BOT, left), [BOT]);
+  assert.deepEqual(getSamePersonGhostIds(room, '@whatsapp_999:chagai.website', left), [
+    '@whatsapp_999:chagai.website',
+  ]);
+  const group = fakeRoom({ bridged: false, members: [member(ME), member(LID), member(MOLLY)] });
+  assert.deepEqual(getSamePersonGhostIds(group, LID, left), [LID]);
 });

@@ -1,10 +1,13 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Room } from 'matrix-js-sdk';
 import { getMemberDisplayName } from '../../utils/room';
 import { getMxIdLocalPart } from '../../utils/matrix';
-import { MediaViewer, useStableIndex, ViewerItem } from '../media-viewer/MediaViewer';
-import { AvatarHistoryEntry, describeHistoryEntry } from './avatarHistory';
+import { MediaViewer, ViewerItem } from '../media-viewer/MediaViewer';
+import { AvatarHistoryEntry, collapseHistory, describeHistoryEntry } from './avatarHistory';
 import { useAvatarHistory } from './useAvatarHistory';
+import { useContentKeys } from './contentKeys';
+import { useMatrixClient } from '../../hooks/useMatrixClient';
+import { useMediaAuthentication } from '../../hooks/useMediaAuthentication';
 
 type AvatarHistoryViewerProps = {
   room: Room;
@@ -13,13 +16,11 @@ type AvatarHistoryViewerProps = {
   onClose: () => void;
 };
 
-const toItem = (
-  entry: AvatarHistoryEntry,
-  i: number,
-  title: string,
-  sender: string
-): ViewerItem => ({
-  eventId: `avatar:${entry.source}:${i}:${entry.mxc}`,
+const itemId = (mxc: string) => `avatar:${mxc}`;
+
+const toItem = (entry: AvatarHistoryEntry, title: string, sender: string): ViewerItem => ({
+  // keyed by picture, so the shown one stays put while repeats are folded away
+  eventId: itemId(entry.mxc),
   ts: entry.since ?? entry.before ?? 0,
   sender,
   kind: 'image',
@@ -44,24 +45,44 @@ export function AvatarHistoryViewer({
     ? getMemberDisplayName(room, userId) ?? getMxIdLocalPart(userId) ?? userId
     : room.name;
 
-  const items = useMemo(() => {
-    const list: ViewerItem[] = [];
-    history.member.forEach((e, i) =>
-      list.push(toItem(e, i, `${name} · profile picture`, userId ?? ''))
-    );
-    history.room.forEach((e, i) =>
-      list.push(
-        toItem(e, i, userId ? `Chat picture (${room.name})` : `${room.name} · chat picture`, '')
-      )
-    );
-    return list;
-  }, [history.member, history.room, name, userId, room.name]);
+  const mx = useMatrixClient();
+  const useAuthentication = useMediaAuthentication();
+  const all = useMemo(() => [...history.member, ...history.room], [history.member, history.room]);
+  const allMxcs = useMemo(() => all.map((e) => e.mxc), [all]);
+  // Each picture once: same mxc, or the same file re-uploaded under a new mxc.
+  const { keyOf, pending } = useContentKeys(mx, history.loading ? [] : allMxcs, useAuthentication);
+  const { entries, alias } = useMemo(() => collapseHistory(all, keyOf), [all, keyOf]);
 
-  const { index, setIndex } = useStableIndex(items);
+  const items = useMemo(
+    () =>
+      entries.map((e) =>
+        e.source === 'member'
+          ? toItem(e, `${name} · profile picture`, userId ?? '')
+          : toItem(e, userId ? `Chat picture (${room.name})` : `${room.name} · chat picture`, '')
+      ),
+    [entries, name, userId, room.name]
+  );
+
+  const [currentMxc, setCurrentMxc] = useState<string>();
+  const index = useMemo(() => {
+    if (!currentMxc) return 0;
+    const target = alias.get(currentMxc) ?? currentMxc;
+    const i = items.findIndex((it) => it.eventId === itemId(target));
+    return i >= 0 ? i : 0;
+  }, [items, alias, currentMxc]);
+  const setIndex = useCallback(
+    (i: number) => {
+      const it = items[i];
+      if (it?.mxc) setCurrentMxc(it.mxc);
+    },
+    [items]
+  );
 
   const notes: string[] = [];
   if (!history.loading) {
-    if (items.length === 1) notes.push('Only the current picture is known in this chat.');
+    if (items.length === 1 && pending === 0)
+      notes.push('Only the current picture is known in this chat.');
+    if (pending > 0) notes.push(`Checking for repeated pictures (${pending} left)…`);
     if (!history.complete) notes.push('Older pictures may exist further back.');
     if (history.error) notes.push(`Could not load the history (${history.error}).`);
   }
@@ -72,7 +93,7 @@ export function AvatarHistoryViewer({
   return (
     <MediaViewer
       items={items}
-      index={index >= 0 ? index : 0}
+      index={index}
       onIndexChange={setIndex}
       onClose={onClose}
       loading={history.loading}

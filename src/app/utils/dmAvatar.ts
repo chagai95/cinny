@@ -225,3 +225,48 @@ export const getDmAvatarMxc = (
 /** User id to colour the placeholder with, so list, header and timeline match. */
 export const getDmColorKey = (room: DmRoomLike): string =>
   getDmPartnerMember(room)?.userId ?? room.roomId;
+
+export type LeftMemberEvent = {
+  state_key?: string;
+  content?: { membership?: string; reason?: string; displayname?: string };
+};
+
+/**
+ * All bridge ghosts in a bridged 1:1 chat that are the SAME person as
+ * `userId`: the current contact plus the old ghosts the bridge retired when it
+ * moved the contact to a new id ("Migrating to LIDs", WhatsApp 2026-10-31).
+ * Their member events together hold the whole profile-picture history.
+ * Anything else (groups, me, the bot, my own puppet, an unrelated ghost)
+ * returns just `[userId]`.
+ */
+export const getSamePersonGhostIds = (
+  room: DmRoomLike,
+  userId: string,
+  leftMembers: LeftMemberEvent[]
+): string[] => {
+  const bridge = getBridgeInfo(room);
+  if (bridge?.roomType !== 'dm') return [userId];
+  const skip = getNonPartnerIds(room, bridge);
+  const ownPuppet = (id: string) => !!bridge.receiver && id.includes(`_${bridge.receiver}:`);
+  if (skip.has(userId) || ownPuppet(userId)) return [userId];
+
+  const partner = getDmPartnerMember(room);
+  let migrated = leftMembers.filter(
+    (e) =>
+      !!e.state_key &&
+      e.content?.membership === 'leave' &&
+      (/migrat/i.test(e.content?.reason ?? '') ||
+        (!!partner?.rawDisplayName && e.content?.displayname === partner.rawDisplayName)) &&
+      !skip.has(e.state_key) &&
+      !ownPuppet(e.state_key)
+  );
+  if (migrated.length > 1 && partner?.rawDisplayName) {
+    const sameName = migrated.filter((e) => e.content?.displayname === partner.rawDisplayName);
+    if (sameName.length > 0) migrated = sameName;
+  }
+  const ids = [partner?.userId, ...migrated.map((e) => e.state_key)].filter(
+    (id): id is string => !!id
+  );
+  if (!ids.includes(userId)) return [userId];
+  return Array.from(new Set([userId, ...ids]));
+};
