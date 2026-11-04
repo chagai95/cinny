@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { atom } from 'jotai';
 import type { IEventWithRoomId, MatrixClient } from 'matrix-js-sdk';
 
 /**
@@ -18,11 +19,18 @@ export type ArchiveProfiles = Record<
 export type ArchiveEvent = IEventWithRoomId & {
   unsigned: Record<string, any> & { 'chagai.so'?: number; 'chagai.current_room'?: string };
 };
+export type ArchiveCursor = { ts: number; id: number };
 export type ArchivePage = {
   chunk: ArchiveEvent[];
   profiles: ArchiveProfiles;
-  end: { ts: number; id: number } | null;
+  /** cursor for older pages (null = reached the oldest) */
+  end: ArchiveCursor | null;
+  /** cursor for newer pages (only for around/after loads; null = reached the newest) */
+  start?: ArchiveCursor | null;
 };
+
+/** "Jump to Time" to a moment before the current chat began: ArchiveTimeline opens there. */
+export const archiveJumpAtom = atom<{ roomId: string; ts: number } | undefined>(undefined);
 
 const base = (mx: MatrixClient) => `${mx.baseUrl.replace(/\/+$/, '')}/wa-history`;
 
@@ -78,13 +86,22 @@ export const useArchiveLinks = (mx: MatrixClient, roomId: string): ArchiveLink[]
 export const getArchiveMessages = (
   mx: MatrixClient,
   roomId: string,
-  before?: { ts: number; id: number }
+  at: { before?: ArchiveCursor; after?: ArchiveCursor; around?: number } = {}
 ): Promise<ArchivePage> =>
   archiveFetch<ArchivePage>(mx, `/v1/rooms/${encodeURIComponent(roomId)}/messages`, {
     limit: 40,
-    before_ts: before?.ts,
-    before_id: before?.id,
+    before_ts: at.before?.ts,
+    before_id: at.before?.id,
+    after_ts: at.after?.ts,
+    after_id: at.after?.id,
+    around_ts: at.around,
   });
+
+/** Oldest linked message of a chat (for date pickers), or undefined. */
+export const earliestArchiveTs = (links: ArchiveLink[] | undefined): number | undefined => {
+  const firsts = (links ?? []).map((l) => l.first_ts).filter((t) => typeof t === 'number');
+  return firsts.length > 0 ? Math.min(...firsts) : undefined;
+};
 
 export type ArchiveSearch = { results: ArchiveEvent[]; profiles: ArchiveProfiles };
 

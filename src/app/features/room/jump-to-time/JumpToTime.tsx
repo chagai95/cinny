@@ -1,4 +1,5 @@
 import React, { MouseEventHandler, useCallback, useMemo, useState } from 'react';
+import { useSetAtom } from 'jotai';
 import {
   Dialog,
   Overlay,
@@ -31,6 +32,7 @@ import { getToday, getYesterday, timeDayMonthYear, timeHourMinute } from '../../
 import { DatePicker, TimePicker } from '../../../components/time-date';
 import { useSetting } from '../../../state/hooks/settings';
 import { settingsAtom } from '../../../state/settings';
+import { archiveJumpAtom, earliestArchiveTs, useArchiveLinks } from '../../wa-archive/api';
 
 type JumpToTimeProps = {
   onCancel: () => void;
@@ -44,7 +46,13 @@ export function JumpToTime({ onCancel, onSubmit }: JumpToTimeProps) {
 
   const todayTs = getToday();
   const yesterdayTs = getYesterday();
-  const createTs = useMemo(() => createStateEvent?.getTs() ?? 0, [createStateEvent]);
+  const roomCreateTs = useMemo(() => createStateEvent?.getTs() ?? 0, [createStateEvent]);
+  // WhatsApp chats with linked older history (before the 2024 bridge reset) reach back further
+  const archiveLinks = useArchiveLinks(mx, room.roomId);
+  const archiveFirst = earliestArchiveTs(archiveLinks);
+  const createTs =
+    archiveFirst !== undefined && archiveFirst < roomCreateTs ? archiveFirst : roomCreateTs;
+  const setArchiveJump = useSetAtom(archiveJumpAtom);
   const [ts, setTs] = useState(() => Date.now());
 
   const [hour24Clock] = useSetting(settingsAtom, 'hour24Clock');
@@ -78,7 +86,10 @@ export function JumpToTime({ onCancel, onSubmit }: JumpToTimeProps) {
   );
 
   const handleSubmit = () => {
-    timestampToEvent(ts).then((eventId) => {
+    // before this chat began: open the chat at its start, the older history opens at that moment
+    const intoArchive = archiveFirst !== undefined && ts < roomCreateTs;
+    if (intoArchive) setArchiveJump({ roomId: room.roomId, ts });
+    timestampToEvent(intoArchive ? roomCreateTs : ts).then((eventId) => {
       if (alive()) {
         onSubmit(eventId);
       }
