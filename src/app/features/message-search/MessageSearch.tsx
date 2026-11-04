@@ -1,4 +1,4 @@
-import React, { RefObject, useEffect, useMemo, useRef } from 'react';
+import React, { RefObject, useEffect, useMemo, useRef, useState } from 'react';
 import { Text, Box, Icon, Icons, config, Spinner, IconButton, Line, toRem } from 'folds';
 import { useAtomValue } from 'jotai';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -23,6 +23,7 @@ import { SearchResultGroup } from './SearchResultGroup';
 import { SearchInput } from './SearchInput';
 import { SearchFilters } from './SearchFilters';
 import { VirtualTile } from '../../components/virtualizer';
+import { ArchiveSearchResults } from '../wa-archive/ArchiveSearchResults';
 
 const useSearchPathSearchParams = (searchParams: URLSearchParams): _SearchPathSearchParams =>
   useMemo(
@@ -96,6 +97,7 @@ export function MessageSearch({
   }, [searchPathSearchParams, searchParamRooms, searchParamsSenders, rooms, senders]);
 
   const searchMessages = useMessageSearch(msgSearchParams);
+  const [archiveCount, setArchiveCount] = useState(0);
 
   const { status, data, error, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
     enabled: !!msgSearchParams.term,
@@ -237,18 +239,30 @@ export function MessageSearch({
         </PageHeroEmpty>
       )}
 
-      {msgSearchParams.term && groups.length === 0 && status === 'success' && (
-        <Box
-          className={ContainerColor({ variant: 'Warning' })}
-          style={{ padding: config.space.S300, borderRadius: config.radii.R400 }}
-          alignItems="Center"
-          gap="200"
-        >
-          <Icon size="200" src={Icons.Info} />
-          <Text>
-            No results found for <b>{`"${msgSearchParams.term}"`}</b>
-          </Text>
-        </Box>
+      {msgSearchParams.term &&
+        groups.length === 0 &&
+        status === 'success' &&
+        archiveCount === 0 && (
+          <Box
+            className={ContainerColor({ variant: 'Warning' })}
+            style={{ padding: config.space.S300, borderRadius: config.radii.R400 }}
+            alignItems="Center"
+            gap="200"
+          >
+            <Icon size="200" src={Icons.Info} />
+            <Text>
+              No results found for <b>{`"${msgSearchParams.term}"`}</b>
+            </Text>
+          </Box>
+        )}
+
+      {msgSearchParams.term && status === 'pending' && (
+        // the server search can be slow: show the earlier messages already
+        <ArchiveSearchResults
+          term={msgSearchParams.term}
+          rooms={msgSearchParams.rooms}
+          onCount={setArchiveCount}
+        />
       )}
 
       {((msgSearchParams.term && status === 'pending') ||
@@ -306,6 +320,14 @@ export function MessageSearch({
             </Box>
           )}
         </Box>
+      )}
+
+      {msgSearchParams.term && status !== 'pending' && (
+        <ArchiveSearchResults
+          term={msgSearchParams.term}
+          rooms={msgSearchParams.rooms}
+          onCount={setArchiveCount}
+        />
       )}
 
       {error && (

@@ -91,6 +91,7 @@ import { Reactions, Message, Event, EncryptedContent } from './message';
 import { useMemberEventParser } from '../../hooks/useMemberEventParser';
 import * as customHtmlCss from '../../styles/CustomHtml.css';
 import { RoomIntro } from '../../components/room-intro';
+import { ArchiveTimeline } from '../wa-archive/ArchiveTimeline';
 import {
   getIntersectionObserverEntry,
   useIntersectionObserver,
@@ -1791,6 +1792,10 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
           justifyContent="End"
           style={{ minHeight: '100%', padding: `${config.space.S600} 0` }}
         >
+          {!canPaginateBack && rangeAtStart && getItems().length > 0 && (
+            // older WhatsApp history from the linked older rooms (read-only), if any
+            <ArchiveTimeline room={room} scrollRef={scrollRef} />
+          )}
           {!canPaginateBack && rangeAtStart && getItems().length > 0 && (
             <div
               style={{

@@ -11,7 +11,13 @@ import {
   roomAvatarHistoryFilter,
   StateLikeEvent,
 } from './avatarHistory';
-import { getSamePersonGhostIds, isBridgedDm, LeftMemberEvent } from '../../utils/dmAvatar';
+import {
+  getDmPartnerUserId,
+  getSamePersonGhostIds,
+  isBridgedDm,
+  LeftMemberEvent,
+} from '../../utils/dmAvatar';
+import { getArchiveMembers } from '../wa-archive/api';
 
 export type AvatarHistoryState = {
   member: AvatarHistoryEntry[];
@@ -115,13 +121,28 @@ export const useAvatarHistory = (
             ? fetchAll(mx, room.roomId, `${room.roomId}|r`, roomAvatarHistoryFilter())
             : undefined,
         ]);
+        // older pictures from the linked older rooms (WhatsApp before Feb 2024), read-only
+        const partner = isBridgedDm(room) ? getDmPartnerUserId(room) : undefined;
+        const older =
+          userId && ghostIds
+            ? await getArchiveMembers(
+                mx,
+                room.roomId,
+                ghostIds,
+                !!partner && ghostIds.includes(partner)
+              ).catch(() => ({ chunk: [], users: [] as string[] }))
+            : { chunk: [], users: [] as string[] };
+        const olderUsers = Array.isArray(older?.users) ? older.users : [];
+        const olderEvents = Array.isArray(older?.chunk) ? (older.chunk as StateLikeEvent[]) : [];
+        const allIds = ghostIds ? Array.from(new Set([...ghostIds, ...olderUsers])) : [];
+        const memberEvents = [...(m?.events ?? []), ...olderEvents];
         if (!alive) return;
         setState({
           member:
             userId && ghostIds
               ? extractMemberAvatarHistory(
-                  m?.events ?? [],
-                  ghostIds,
+                  memberEvents,
+                  allIds,
                   // tapped an old (retired) ghost: "current" is the live ghost's picture
                   ghostIds
                     .map((id) => room.getMember(id))
