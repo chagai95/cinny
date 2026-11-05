@@ -1330,7 +1330,7 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
         if (!membershipChanged && hideNickAvatarEvents) return null;
 
         const highlighted = focusItem?.index === item && focusItem.highlight;
-        const parsed = parseMemberEvent(mEvent);
+        const parsed = parseMemberEvent(mEvent, handleUserClick);
 
         const timeJSX = (
           <Time
